@@ -47,15 +47,3 @@ jobs:
           GOOGLE_SHEET_ID:            ${{ secrets.GOOGLE_SHEET_ID }}
         run: python src/scraper.py
 
-      # Slack 通知（SLACK_WEBHOOK_URL を Secret に登録した場合のみ動作）
-      - name: エラー通知
-        if: failure()
-        continue-on-error: true
-        uses: slackapi/slack-github-action@v2
-        with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            {
-              "text": ":x: 求人ボックス同期が失敗しました\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            }
