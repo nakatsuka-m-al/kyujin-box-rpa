@@ -120,9 +120,16 @@ def login(page) -> None:
     logger.info(f"ログイン完了 → {page.url}")
 
 
+ACCOUNTS_URL = "https://saiyo.kyujinbox.com/ptr/l-accounts"
+
+
 def fetch_csv_for_subaccount(page, sub: dict) -> bytes:
     sub_name = sub["name"]
     logger.info(f"サブアカウント切替: {sub_name}")
+
+    # 毎回アカウント一覧ページに戻ってから切り替える
+    page.goto(ACCOUNTS_URL)
+    page.wait_for_load_state("networkidle")
 
     page.get_by_role("link", name="直接投稿").click()
     page.wait_for_load_state("networkidle")
