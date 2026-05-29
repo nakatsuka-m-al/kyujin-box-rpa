@@ -32,7 +32,11 @@ APPLICANTS_URL = "https://employer.kyujinbox.com/applicants"
 MASTER_EMAIL = os.environ["KYUJIN_MASTER_EMAIL"]
 MASTER_PASSWORD = os.environ["KYUJIN_MASTER_PASSWORD"]
 
+# マスターアカウントでログイン後、UIで切り替えるサブアカウントのリスト
+# id: 管理画面のアカウント切替UIで使われる識別子（URLパラメータ or DOM属性）
+# name: ログ・スプレッドシートに記録する拠点名（任意）
 # 例: [{"id": "sub001", "name": "店舗A"}, {"id": "sub002", "name": "店舗B"}]
+# ※ 各サブアカウントへの入室に個別ID/PASSは不要（マスターから直接切替可能）
 SUB_ACCOUNTS: list[dict] = json.loads(os.environ.get("KYUJIN_SUB_ACCOUNTS", "[]"))
 
 SEEN_IDS_PATH = Path("seen_applicant_ids.json")
@@ -230,7 +234,7 @@ def main() -> None:
     logger.info(f"新規応募者 {len(new_applicants)} 件を書き込みます")
 
     sheets.append(new_applicants)
-    rpm.post_applicants(new_applicants)
+    # rpm.post_applicants(new_applicants)  # API仕様書受領後に有効化
 
     save_seen_ids(seen_ids)
     logger.info("完了")

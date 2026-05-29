@@ -1,5 +1,8 @@
 """
 Google Sheets / RPM (ゼクウ) へのデータ書き込み
+
+RPMExporter は現在未使用。API仕様書受領後に実装する。
+インターフェース（post_applicants / FIELD_MAP）はそのまま維持して拡張のみで対応できる設計。
 """
 
 import json
@@ -7,7 +10,6 @@ import logging
 import os
 from typing import Any
 
-import requests
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 
@@ -107,13 +109,16 @@ class SheetsExporter:
 
 
 # ─── RPM (ゼクウ) ─────────────────────────────────────────────────────────────
+# 現在は未使用（Sheets のみ稼働）。
+# API仕様書受領後の実装手順:
+#   1. FIELD_MAP の右辺を実際の RPM フィールド名に更新
+#   2. post_applicants に requests.post を実装
+#   3. GitHub Secrets に RPM_API_KEY / RPM_API_ENDPOINT を追加
+#   4. scraper.py の rpm.post_applicants() のコメントアウトを外す
 
-RPM_API_KEY = os.environ.get("RPM_API_KEY", "")
-RPM_API_ENDPOINT = os.environ.get("RPM_API_ENDPOINT", "")
-
-# TODO: ゼクウから API 仕様書を受領後、実際のフィールド名に更新
+# 内部キー → RPM フィールド名（仮。仕様書受領後に更新）
 FIELD_MAP: dict[str, str] = {
-    "applicant_id": "applicant_code",      # RPM側フィールド名（仮）
+    "applicant_id": "applicant_code",
     "applied_at":   "application_date",
     "name":         "full_name",
     "name_kana":    "full_name_kana",
@@ -134,40 +139,11 @@ FIELD_MAP: dict[str, str] = {
 
 
 class RPMExporter:
-    def __init__(self) -> None:
-        if not RPM_API_KEY or not RPM_API_ENDPOINT:
-            logger.warning("RPM_API_KEY / RPM_API_ENDPOINT 未設定 — RPM 連携をスキップします")
+    """RPM (ゼクウ) 連携スタブ。API仕様書受領後に post_applicants を実装する。"""
 
     def post_applicants(self, applicants: list[dict]) -> None:
-        if not RPM_API_KEY or not RPM_API_ENDPOINT:
-            return
-
-        ok = 0
-        ng = 0
-        for a in applicants:
-            payload = self._build_payload(a)
-            try:
-                resp = requests.post(
-                    RPM_API_ENDPOINT,
-                    json=payload,
-                    headers={
-                        "Authorization": f"Bearer {RPM_API_KEY}",
-                        "Content-Type": "application/json",
-                    },
-                    timeout=30,
-                )
-                resp.raise_for_status()
-                ok += 1
-            except requests.RequestException as e:
-                logger.error(f"RPM POST 失敗 (applicant_id={a.get('applicant_id')}): {e}")
-                ng += 1
-
-        logger.info(f"RPM: 成功 {ok} 件 / 失敗 {ng} 件")
+        # 未実装。API仕様書受領後にここを埋める。
+        logger.info("RPM連携はスキップ（未実装）")
 
     def _build_payload(self, a: dict) -> dict[str, Any]:
-        payload: dict[str, Any] = {}
-        for internal_key, rpm_key in FIELD_MAP.items():
-            val = a.get(internal_key, "")
-            if val:
-                payload[rpm_key] = val
-        return payload
+        return {rpm_key: a[k] for k, rpm_key in FIELD_MAP.items() if a.get(k)}
