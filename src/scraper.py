@@ -28,8 +28,10 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://secure.kyujinbox.com"
 LOGIN_URL = f"{BASE_URL}/login"
 
-# save_cookies.py で取得して GitHub Secret に登録したクッキー
-KYUJIN_COOKIES: list[dict] = json.loads(os.environ.get("KYUJIN_COOKIES", "[]"))
+# save_cookies.py で取得して GitHub Secret に登録したセッション情報
+# storageState 形式: {"cookies": [...], "origins": [...]}
+_cookies_raw = os.environ.get("KYUJIN_COOKIES", "")
+KYUJIN_STORAGE_STATE: dict = json.loads(_cookies_raw) if _cookies_raw else {}
 
 # サブアカウントのリスト
 # name: 管理画面のアカウント切替メニューに表示される会社名（完全一致）
@@ -100,16 +102,17 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
 
 # ─── Playwright 操作 ──────────────────────────────────────────────────────────
 
-def restore_session(context) -> None:
-    """保存済みクッキーでセッションを復元する"""
-    if not KYUJIN_COOKIES:
+def check_storage_state() -> None:
+    """KYUJIN_COOKIES が設定されているか確認する"""
+    if not KYUJIN_STORAGE_STATE:
         raise RuntimeError(
             "KYUJIN_COOKIES が未設定です。\n"
             "ローカルで python3 src/save_cookies.py を実行して\n"
             "GitHub Secret に登録してください。"
         )
-    context.add_cookies(KYUJIN_COOKIES)
-    logger.info(f"クッキーでセッションを復元しました（{len(KYUJIN_COOKIES)} 件）")
+    n_cookies = len(KYUJIN_STORAGE_STATE.get("cookies", []))
+    n_origins = len(KYUJIN_STORAGE_STATE.get("origins", []))
+    logger.info(f"storageState 確認: cookies={n_cookies} 件, origins={n_origins} 件")
 
 
 def verify_login(page) -> None:
@@ -160,12 +163,14 @@ def main() -> None:
     seen_ids = load_seen_ids()
     new_applicants: list[dict] = []
 
+    check_storage_state()
     sheets = SheetsExporter()
     rpm = RPMExporter()
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True)
         context = browser.new_context(
+            storage_state=KYUJIN_STORAGE_STATE,
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -175,7 +180,6 @@ def main() -> None:
         )
 
         try:
-            restore_session(context)
             page = context.new_page()
             verify_login(page)
 
