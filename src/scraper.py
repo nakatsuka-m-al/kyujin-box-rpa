@@ -85,6 +85,8 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
         raise ValueError("CSV のエンコーディングを判別できませんでした")
 
     reader = csv.DictReader(io.StringIO(text))
+    fieldnames = reader.fieldnames or []
+    logger.info(f"CSVヘッダ: {fieldnames}")
     rows = []
     for row in reader:
         mapped = {v: row.get(k, "").strip() for k, v in COLUMN_MAP.items()}
