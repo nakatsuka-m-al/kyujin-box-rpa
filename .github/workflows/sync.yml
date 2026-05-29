@@ -36,9 +36,10 @@ jobs:
 
       - name: 同期実行
         env:
-          KYUJIN_COOKIES:             ${{ secrets.KYUJIN_COOKIES }}
-          KYUJIN_SUB_ACCOUNTS:        ${{ secrets.KYUJIN_SUB_ACCOUNTS }}
+          KYUJIN_MASTER_EMAIL:         ${{ secrets.KYUJIN_MASTER_EMAIL }}
+          KYUJIN_MASTER_PASSWORD:      ${{ secrets.KYUJIN_MASTER_PASSWORD }}
+          KYUJIN_SUB_ACCOUNTS:         ${{ secrets.KYUJIN_SUB_ACCOUNTS }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-          GOOGLE_SHEET_ID:            ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
         run: python src/scraper.py
 

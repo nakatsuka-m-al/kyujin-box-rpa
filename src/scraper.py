@@ -1,7 +1,7 @@
 """
 求人ボックス 応募者データ自動取得スクリプト
-- クッキーでセッション復元（CAPTCHA回避）
-- マスターアカウントでログイン後、サブアカウントごとに CSV ダウンロード
+- playwright-stealth でボット検知・CAPTCHA を回避
+- 毎回ログイン → 即スクレイピング（同一セッション・同一IP）
 - 差分管理は seen_applicant_ids.json で実施
 """
 
@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 
 from exporters import SheetsExporter, RPMExporter
 
@@ -25,24 +26,18 @@ logger = logging.getLogger(__name__)
 
 # ─── 設定 ────────────────────────────────────────────────────────────────────
 
-BASE_URL = "https://secure.kyujinbox.com"
-LOGIN_URL = f"{BASE_URL}/login"
+LOGIN_URL = "https://secure.kyujinbox.com/login"
+BASE_URL  = "https://secure.kyujinbox.com"
 
-# save_cookies.py で取得して GitHub Secret に登録したセッション情報
-# storageState 形式: {"cookies": [...], "origins": [...]}
-_cookies_raw = os.environ.get("KYUJIN_COOKIES", "")
-KYUJIN_STORAGE_STATE: dict = json.loads(_cookies_raw) if _cookies_raw else {}
+MASTER_EMAIL    = os.environ["KYUJIN_MASTER_EMAIL"]
+MASTER_PASSWORD = os.environ["KYUJIN_MASTER_PASSWORD"]
 
-# サブアカウントのリスト
-# name: 管理画面のアカウント切替メニューに表示される会社名（完全一致）
 # 例: [{"name": "株式会社ｃｏｍａｍ"}, {"name": "株式会社〇〇"}]
 SUB_ACCOUNTS: list[dict] = json.loads(os.environ.get("KYUJIN_SUB_ACCOUNTS", "[]"))
 
 SEEN_IDS_PATH = Path("seen_applicant_ids.json")
 
 # ─── CSV カラムマッピング ──────────────────────────────────────────────────────
-# 左辺: 求人ボックスCSVの実際のヘッダ名（実CSVで確認済みのものに更新すること）
-# 右辺: 社内統一フィールド名
 COLUMN_MAP: dict[str, str] = {
     "応募ID":         "applicant_id",
     "応募日時":       "applied_at",
@@ -93,8 +88,7 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
     reader = csv.DictReader(io.StringIO(text))
     rows = []
     for row in reader:
-        mapped = {internal_key: row.get(csv_key, "").strip()
-                  for csv_key, internal_key in COLUMN_MAP.items()}
+        mapped = {v: row.get(k, "").strip() for k, v in COLUMN_MAP.items()}
         mapped["_raw"] = dict(row)
         rows.append(mapped)
     return rows
@@ -102,55 +96,42 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
 
 # ─── Playwright 操作 ──────────────────────────────────────────────────────────
 
-def check_storage_state() -> None:
-    """KYUJIN_COOKIES が設定されているか確認する"""
-    if not KYUJIN_STORAGE_STATE:
-        raise RuntimeError(
-            "KYUJIN_COOKIES が未設定です。\n"
-            "ローカルで python3 src/save_cookies.py を実行して\n"
-            "GitHub Secret に登録してください。"
-        )
-    n_cookies = len(KYUJIN_STORAGE_STATE.get("cookies", []))
-    n_origins = len(KYUJIN_STORAGE_STATE.get("origins", []))
-    logger.info(f"storageState 確認: cookies={n_cookies} 件, origins={n_origins} 件")
-
-
-def verify_login(page) -> None:
-    """セッションが有効か確認する（クッキー期限切れ検知）"""
-    page.goto(BASE_URL)
+def login(page) -> None:
+    logger.info("ログイン中...")
+    page.goto(LOGIN_URL)
     page.wait_for_load_state("networkidle")
-    logger.info(f"遷移先URL: {page.url}")
-    logger.info(f"ページタイトル: {page.title()}")
+
+    page.locator("#login_email").fill(MASTER_EMAIL)
+    page.locator("#login_password").fill(MASTER_PASSWORD)
+
+    # ステルスモードでCAPTCHAが出ない想定だが、出た場合はここでタイムアウト
+    page.get_by_role("button", name="ログイン").click()
+    page.wait_for_load_state("networkidle")
+
     if "login" in page.url:
         raise RuntimeError(
-            "セッションが切れています。\n"
-            "ローカルで python3 src/save_cookies.py を再実行し\n"
-            "GitHub Secret「KYUJIN_COOKIES」を更新してください。"
+            "ログインに失敗しました。"
+            "CAPTCHA が表示されているか、ID/PASSが間違っている可能性があります。"
         )
-    logger.info("セッション有効確認OK")
+    logger.info(f"ログイン完了 → {page.url}")
 
 
 def fetch_csv_for_subaccount(page, sub: dict) -> bytes:
-    """サブアカウントに切り替えてCSVをダウンロードする"""
     sub_name = sub["name"]
     logger.info(f"サブアカウント切替: {sub_name}")
 
-    # 「直接投稿」メニューを開いてサブアカウントを選択
     page.get_by_role("link", name="直接投稿").click()
     page.wait_for_load_state("networkidle")
     page.get_by_role("link", name=sub_name).click()
     page.wait_for_load_state("networkidle")
 
-    # 応募者一覧へ
     page.get_by_role("link", name="応募者一覧").click()
     page.wait_for_load_state("networkidle")
 
-    # CSVダウンロード
     logger.info(f"[{sub_name}] CSV ダウンロード中...")
-    with page.expect_download() as download_info:
+    with page.expect_download() as dl:
         page.get_by_role("link", name=" 応募者情報をダウンロード").click()
-    download = download_info.value
-    return Path(download.path()).read_bytes()
+    return Path(dl.value.path()).read_bytes()
 
 
 # ─── メイン処理 ───────────────────────────────────────────────────────────────
@@ -163,14 +144,15 @@ def main() -> None:
     seen_ids = load_seen_ids()
     new_applicants: list[dict] = []
 
-    check_storage_state()
     sheets = SheetsExporter()
     rpm = RPMExporter()
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True)
+        browser = pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox"],
+        )
         context = browser.new_context(
-            storage_state=KYUJIN_STORAGE_STATE,
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -181,7 +163,8 @@ def main() -> None:
 
         try:
             page = context.new_page()
-            verify_login(page)
+            stealth_sync(page)   # ボット検知を回避
+            login(page)
 
             for sub in SUB_ACCOUNTS:
                 try:
@@ -191,9 +174,7 @@ def main() -> None:
                     added = 0
                     for a in applicants:
                         aid = a.get("applicant_id", "")
-                        if not aid:
-                            continue
-                        if aid in seen_ids:
+                        if not aid or aid in seen_ids:
                             continue
                         a["_subaccount_name"] = sub["name"]
                         new_applicants.append(a)
@@ -215,7 +196,6 @@ def main() -> None:
         return
 
     logger.info(f"新規応募者 {len(new_applicants)} 件を書き込みます")
-
     sheets.append(new_applicants)
     # rpm.post_applicants(new_applicants)  # API仕様書受領後に有効化
 
