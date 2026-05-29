@@ -1,6 +1,6 @@
 """
 求人ボックス 応募者データ自動取得スクリプト
-- Playwright でヘッドレス Chromium を使用
+- クッキーでセッション復元（CAPTCHA回避）
 - マスターアカウントでログイン後、サブアカウントごとに CSV ダウンロード
 - 差分管理は seen_applicant_ids.json で実施
 """
@@ -11,10 +11,9 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import sync_playwright
 
 from exporters import SheetsExporter, RPMExporter
 
@@ -26,26 +25,23 @@ logger = logging.getLogger(__name__)
 
 # ─── 設定 ────────────────────────────────────────────────────────────────────
 
-LOGIN_URL = "https://employer.kyujinbox.com/login"
-APPLICANTS_URL = "https://employer.kyujinbox.com/applicants"
+BASE_URL = "https://secure.kyujinbox.com"
+LOGIN_URL = f"{BASE_URL}/login"
 
-MASTER_EMAIL = os.environ["KYUJIN_MASTER_EMAIL"]
-MASTER_PASSWORD = os.environ["KYUJIN_MASTER_PASSWORD"]
+# save_cookies.py で取得して GitHub Secret に登録したクッキー
+KYUJIN_COOKIES: list[dict] = json.loads(os.environ.get("KYUJIN_COOKIES", "[]"))
 
-# マスターアカウントでログイン後、UIで切り替えるサブアカウントのリスト
-# id: 管理画面のアカウント切替UIで使われる識別子（URLパラメータ or DOM属性）
-# name: ログ・スプレッドシートに記録する拠点名（任意）
-# 例: [{"id": "sub001", "name": "店舗A"}, {"id": "sub002", "name": "店舗B"}]
-# ※ 各サブアカウントへの入室に個別ID/PASSは不要（マスターから直接切替可能）
+# サブアカウントのリスト
+# name: 管理画面のアカウント切替メニューに表示される会社名（完全一致）
+# 例: [{"name": "株式会社ｃｏｍａｍ"}, {"name": "株式会社〇〇"}]
 SUB_ACCOUNTS: list[dict] = json.loads(os.environ.get("KYUJIN_SUB_ACCOUNTS", "[]"))
 
 SEEN_IDS_PATH = Path("seen_applicant_ids.json")
 
 # ─── CSV カラムマッピング ──────────────────────────────────────────────────────
-# 左辺: 求人ボックスCSVの実際のヘッダ名（要確認・更新）
+# 左辺: 求人ボックスCSVの実際のヘッダ名（実CSVで確認済みのものに更新すること）
 # 右辺: 社内統一フィールド名
 COLUMN_MAP: dict[str, str] = {
-    # TODO: 実際のCSVをダウンロードしてヘッダ名を確認してここを埋める
     "応募ID":         "applicant_id",
     "応募日時":       "applied_at",
     "氏名":           "name",
@@ -83,8 +79,6 @@ def save_seen_ids(ids: set[str]) -> None:
 # ─── CSV パース ───────────────────────────────────────────────────────────────
 
 def parse_csv(raw_bytes: bytes) -> list[dict]:
-    """CSVバイト列を読み込み、COLUMN_MAP でフィールド名を変換して返す"""
-    # BOM 付き UTF-8 / Shift-JIS どちらにも対応
     for encoding in ("utf-8-sig", "shift_jis", "utf-8"):
         try:
             text = raw_bytes.decode(encoding)
@@ -97,10 +91,8 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
     reader = csv.DictReader(io.StringIO(text))
     rows = []
     for row in reader:
-        mapped = {}
-        for csv_key, internal_key in COLUMN_MAP.items():
-            mapped[internal_key] = row.get(csv_key, "").strip()
-        # マッピング外の列も保持（デバッグ用）
+        mapped = {internal_key: row.get(csv_key, "").strip()
+                  for csv_key, internal_key in COLUMN_MAP.items()}
         mapped["_raw"] = dict(row)
         rows.append(mapped)
     return rows
@@ -108,73 +100,61 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
 
 # ─── Playwright 操作 ──────────────────────────────────────────────────────────
 
-def login(page) -> None:
-    logger.info("ログイン中...")
-    page.goto(LOGIN_URL)
-    page.wait_for_load_state("networkidle")
-
-    # TODO: 実際のセレクタに更新（playwright codegen で確認推奨）
-    page.fill('input[type="email"], input[name="email"], #email', MASTER_EMAIL)
-    page.fill('input[type="password"], input[name="password"], #password', MASTER_PASSWORD)
-    page.click('button[type="submit"], input[type="submit"], .login-btn')
-
-    page.wait_for_load_state("networkidle")
-    logger.info("ログイン完了")
-
-
-def switch_to_subaccount(page, sub: dict) -> None:
-    """サブアカウントに切り替える"""
-    sub_id = sub["id"]
-    sub_name = sub.get("name", sub_id)
-    logger.info(f"サブアカウント切替: {sub_name} (id={sub_id})")
-
-    # TODO: 実際のアカウント切替UIのセレクタを確認して更新
-    # パターンA: ドロップダウンメニュー
-    try:
-        page.click(
-            '[data-testid="account-switcher"], '
-            '.account-switcher, '
-            '#account-menu, '
-            '.js-account-switch'
+def restore_session(context) -> None:
+    """保存済みクッキーでセッションを復元する"""
+    if not KYUJIN_COOKIES:
+        raise RuntimeError(
+            "KYUJIN_COOKIES が未設定です。\n"
+            "ローカルで python3 src/save_cookies.py を実行して\n"
+            "GitHub Secret に登録してください。"
         )
-        time.sleep(0.5)
-        page.click(
-            f'[data-account-id="{sub_id}"], '
-            f'[href*="account_id={sub_id}"], '
-            f'[href*="/accounts/{sub_id}"]'
+    context.add_cookies(KYUJIN_COOKIES)
+    logger.info("クッキーでセッションを復元しました")
+
+
+def verify_login(page) -> None:
+    """セッションが有効か確認する（クッキー期限切れ検知）"""
+    page.goto(BASE_URL)
+    page.wait_for_load_state("networkidle")
+    if "login" in page.url:
+        raise RuntimeError(
+            "セッションが切れています。\n"
+            "ローカルで python3 src/save_cookies.py を再実行し\n"
+            "GitHub Secret「KYUJIN_COOKIES」を更新してください。"
         )
-    except PlaywrightTimeoutError:
-        # パターンB: URLパラメータで直接切替
-        page.goto(f"{APPLICANTS_URL}?account_id={sub_id}")
+    logger.info("セッション有効確認OK")
 
+
+def fetch_csv_for_subaccount(page, sub: dict) -> bytes:
+    """サブアカウントに切り替えてCSVをダウンロードする"""
+    sub_name = sub["name"]
+    logger.info(f"サブアカウント切替: {sub_name}")
+
+    # 「直接投稿」メニューを開いてサブアカウントを選択
+    page.get_by_role("link", name="直接投稿").click()
     page.wait_for_load_state("networkidle")
-    time.sleep(1)
-
-
-def download_csv(page) -> bytes:
-    """CSVをダウンロードして bytes で返す"""
-    logger.info("CSV ダウンロード中...")
-    page.goto(APPLICANTS_URL)
+    page.get_by_role("link", name=sub_name).click()
     page.wait_for_load_state("networkidle")
 
-    # TODO: 実際のCSVダウンロードボタンのセレクタを確認して更新
+    # 応募者一覧へ
+    page.get_by_role("link", name="応募者一覧").click()
+    page.wait_for_load_state("networkidle")
+
+    # CSVダウンロード
+    logger.info(f"[{sub_name}] CSV ダウンロード中...")
     with page.expect_download() as download_info:
-        page.click(
-            'a[href*="export"], '
-            'a[href*="csv"], '
-            'button:has-text("CSV"), '
-            'a:has-text("CSVダウンロード"), '
-            'a:has-text("CSV出力"), '
-            'a:has-text("エクスポート")'
-        )
+        page.get_by_role("link", name=" 応募者情報をダウンロード").click()
     download = download_info.value
-    path = download.path()
-    return Path(path).read_bytes()
+    return Path(download.path()).read_bytes()
 
 
 # ─── メイン処理 ───────────────────────────────────────────────────────────────
 
 def main() -> None:
+    if not SUB_ACCOUNTS:
+        logger.warning("KYUJIN_SUB_ACCOUNTS が空です。処理終了。")
+        return
+
     seen_ids = load_seen_ids()
     new_applicants: list[dict] = []
 
@@ -191,37 +171,34 @@ def main() -> None:
             ),
             accept_downloads=True,
         )
-        page = context.new_page()
 
         try:
-            login(page)
+            restore_session(context)
+            page = context.new_page()
+            verify_login(page)
 
             for sub in SUB_ACCOUNTS:
                 try:
-                    switch_to_subaccount(page, sub)
-                    raw = download_csv(page)
+                    raw = fetch_csv_for_subaccount(page, sub)
                     applicants = parse_csv(raw)
 
+                    added = 0
                     for a in applicants:
                         aid = a.get("applicant_id", "")
                         if not aid:
-                            logger.warning(f"applicant_id が空の行をスキップ: {a.get('_raw', {})}")
                             continue
                         if aid in seen_ids:
                             continue
-                        a["_subaccount_id"] = sub["id"]
-                        a["_subaccount_name"] = sub.get("name", sub["id"])
+                        a["_subaccount_name"] = sub["name"]
                         new_applicants.append(a)
                         seen_ids.add(aid)
+                        added += 1
 
-                    logger.info(
-                        f"[{sub.get('name', sub['id'])}] "
-                        f"取得: {len(applicants)} 件 / 新規: {len(new_applicants)} 件"
-                    )
+                    logger.info(f"[{sub['name']}] 取得: {len(applicants)} 件 / 新規: {added} 件")
                     time.sleep(2)
 
                 except Exception as e:
-                    logger.error(f"サブアカウント {sub} の処理中にエラー: {e}", exc_info=True)
+                    logger.error(f"[{sub.get('name')}] エラー: {e}", exc_info=True)
                     continue
 
         finally:
