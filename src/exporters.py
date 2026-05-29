@@ -25,31 +25,28 @@ SHEETS_COLUMNS = [
     "applicant_id",
     "applied_at",
     "name",
-    "name_kana",
-    "email",
-    "phone",
-    "address",
-    "birthdate",
-    "age",
     "gender",
+    "birthdate",
+    "current_job",
+    "phone",
+    "email",
+    "address",
     "education",
     "work_history",
-    "desired_job",
-    "desired_location",
-    "desired_salary",
     "message",
     "job_title",
     "job_id",
     "status",
+    "selection_comment",
+    "job_label",
     "_subaccount_name",
 ]
 
-# ヘッダ行ラベル（1行目が空の場合に自動挿入）
 HEADER_ROW = [
-    "応募ID", "応募日時", "氏名", "氏名（カナ）", "メールアドレス", "電話番号",
-    "住所", "生年月日", "年齢", "性別", "最終学歴", "職歴",
-    "希望職種", "希望勤務地", "希望給与", "メッセージ",
-    "求人タイトル", "求人ID", "ステータス", "拠点名",
+    "応募No", "応募日時", "氏名", "性別", "生年月日", "現在の職業",
+    "電話番号", "メールアドレス", "住所", "学校名", "職歴",
+    "備考・PR", "求人タイトル", "求人ID", "選考ステータス",
+    "選考コメント", "求人ラベル", "拠点名",
 ]
 
 

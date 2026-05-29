@@ -38,25 +38,22 @@ SEEN_IDS_PATH = Path("seen_applicant_ids.json")
 
 # ─── CSV カラムマッピング ──────────────────────────────────────────────────────
 COLUMN_MAP: dict[str, str] = {
-    "応募ID":         "applicant_id",
+    "応募No":         "applicant_id",
     "応募日時":       "applied_at",
     "氏名":           "name",
-    "氏名（カナ）":   "name_kana",
-    "メールアドレス": "email",
-    "電話番号":       "phone",
-    "住所":           "address",
-    "生年月日":       "birthdate",
-    "年齢":           "age",
     "性別":           "gender",
-    "最終学歴":       "education",
-    "職歴":           "work_history",
-    "希望職種":       "desired_job",
-    "希望勤務地":     "desired_location",
-    "希望給与":       "desired_salary",
-    "メッセージ":     "message",
+    "生年月日":       "birthdate",
+    "現在の職業":     "current_job",
+    "電話番号":       "phone",
+    "メールアドレス": "email",
+    "住所":           "address",
+    "学校名":         "education",
+    "備考・PR":       "message",
     "求人タイトル":   "job_title",
     "求人ID":         "job_id",
-    "ステータス":     "status",
+    "選考ステータス": "status",
+    "選考コメント":   "selection_comment",
+    "求人ラベル":     "job_label",
 }
 
 
@@ -85,11 +82,17 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
         raise ValueError("CSV のエンコーディングを判別できませんでした")
 
     reader = csv.DictReader(io.StringIO(text))
-    fieldnames = reader.fieldnames or []
-    logger.info(f"CSVヘッダ: {fieldnames}")
     rows = []
     for row in reader:
         mapped = {v: row.get(k, "").strip() for k, v in COLUMN_MAP.items()}
+        # 勤務先_1〜30 を「会社名 / 役職」形式で結合
+        history_parts = []
+        for i in range(1, 31):
+            company = row.get(f"勤務先_{i}", "").strip()
+            role    = row.get(f"役職・業務内容など_{i}", "").strip()
+            if company:
+                history_parts.append(f"{company}{'／' + role if role else ''}")
+        mapped["work_history"] = " → ".join(history_parts)
         mapped["_raw"] = dict(row)
         rows.append(mapped)
     return rows
