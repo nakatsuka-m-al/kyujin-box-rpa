@@ -109,13 +109,15 @@ def restore_session(context) -> None:
             "GitHub Secret に登録してください。"
         )
     context.add_cookies(KYUJIN_COOKIES)
-    logger.info("クッキーでセッションを復元しました")
+    logger.info(f"クッキーでセッションを復元しました（{len(KYUJIN_COOKIES)} 件）")
 
 
 def verify_login(page) -> None:
     """セッションが有効か確認する（クッキー期限切れ検知）"""
     page.goto(BASE_URL)
     page.wait_for_load_state("networkidle")
+    logger.info(f"遷移先URL: {page.url}")
+    logger.info(f"ページタイトル: {page.title()}")
     if "login" in page.url:
         raise RuntimeError(
             "セッションが切れています。\n"
