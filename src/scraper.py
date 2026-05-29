@@ -14,7 +14,6 @@ import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
 
 from exporters import SheetsExporter, RPMExporter
 
@@ -150,7 +149,11 @@ def main() -> None:
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox"],
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-blink-features=AutomationControlled",
+            ],
         )
         context = browser.new_context(
             user_agent=(
@@ -163,7 +166,10 @@ def main() -> None:
 
         try:
             page = context.new_page()
-            stealth_sync(page)   # ボット検知を回避
+            # navigator.webdriver を隠してボット検知を回避
+            page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+            )
             login(page)
 
             for sub in SUB_ACCOUNTS:

@@ -1,6 +1,4 @@
 playwright
-setuptools
-playwright-stealth==1.0.6
 google-auth
 google-auth-httplib2
 google-api-python-client
