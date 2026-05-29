@@ -1,0 +1,63 @@
+name: 求人ボックス 応募者同期
+
+on:
+  schedule:
+    # 6時間ごと（日本時間: 1時・7時・13時・19時 に相当）
+    - cron: "0 16,22,4,10 * * *"
+  workflow_dispatch:  # 手動実行用
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # seen_applicant_ids.json をキャッシュから復元
+      - name: 差分キャッシュ復元
+        uses: actions/cache@v4
+        with:
+          path: seen_applicant_ids.json
+          key: seen-ids-${{ github.run_id }}
+          restore-keys: |
+            seen-ids-
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 依存インストール
+        run: |
+          pip install \
+            playwright \
+            google-auth \
+            google-auth-httplib2 \
+            google-api-python-client \
+            requests
+          playwright install --with-deps chromium
+
+      - name: 同期実行
+        env:
+          KYUJIN_MASTER_EMAIL:        ${{ secrets.KYUJIN_MASTER_EMAIL }}
+          KYUJIN_MASTER_PASSWORD:     ${{ secrets.KYUJIN_MASTER_PASSWORD }}
+          KYUJIN_SUB_ACCOUNTS:        ${{ secrets.KYUJIN_SUB_ACCOUNTS }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID:            ${{ secrets.GOOGLE_SHEET_ID }}
+          RPM_API_KEY:                ${{ secrets.RPM_API_KEY }}
+          RPM_API_ENDPOINT:           ${{ secrets.RPM_API_ENDPOINT }}
+        run: python src/scraper.py
+
+      # Slack 通知（SLACK_WEBHOOK_URL が設定されている場合のみ）
+      - name: エラー通知
+        if: failure() && secrets.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v2
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: 求人ボックス同期が失敗しました\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            }
