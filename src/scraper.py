@@ -139,9 +139,15 @@ def fetch_csv_for_subaccount(page, sub: dict) -> bytes:
     page.get_by_role("link", name="応募者一覧").click()
     page.wait_for_load_state("networkidle")
 
+    # ダウンロードボタンが存在しない場合は応募者0件としてスキップ
+    dl_link = page.get_by_role("link", name=" 応募者情報をダウンロード")
+    if not dl_link.is_visible(timeout=5000):
+        logger.info(f"[{sub_name}] 応募者なし（ダウンロードボタン未表示）")
+        return b""
+
     logger.info(f"[{sub_name}] CSV ダウンロード中...")
     with page.expect_download() as dl:
-        page.get_by_role("link", name=" 応募者情報をダウンロード").click()
+        dl_link.click()
     return Path(dl.value.path()).read_bytes()
 
 
@@ -187,6 +193,8 @@ def main() -> None:
             for sub in SUB_ACCOUNTS:
                 try:
                     raw = fetch_csv_for_subaccount(page, sub)
+                    if not raw:
+                        continue
                     applicants = parse_csv(raw)
 
                     added = 0

@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 # ─── Google Sheets ────────────────────────────────────────────────────────────
 
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")
-SHEET_RANGE = "応募者!A:Z"  # シート名・範囲は実態に合わせて変更
+# GOOGLE_SHEET_TAB でタブ名を変更可能。デフォルトは「シート1」
+SHEET_TAB = os.environ.get("GOOGLE_SHEET_TAB", "シート1")
+SHEET_RANGE = f"{SHEET_TAB}!A:Z"
 
 # Sheets に書き込む列順（COLUMN_MAP の内部キー名と対応）
 SHEETS_COLUMNS = [
@@ -92,13 +94,13 @@ class SheetsExporter:
         result = (
             self._service.spreadsheets()
             .values()
-            .get(spreadsheetId=SHEET_ID, range="応募者!A1:Z1")
+            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!A1:Z1")
             .execute()
         )
         if not result.get("values"):
             self._service.spreadsheets().values().update(
                 spreadsheetId=SHEET_ID,
-                range="応募者!A1",
+                range=f"{SHEET_TAB}!A1",
                 valueInputOption="RAW",
                 body={"values": [HEADER_ROW]},
             ).execute()
