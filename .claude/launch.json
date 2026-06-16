@@ -1,0 +1,43 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "career-stories",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd ~/Desktop/recruitment-media && pnpm --filter career-stories dev"],
+      "port": 3001,
+      "autoPort": false
+    },
+    {
+      "name": "salary-data",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd ~/Desktop/recruitment-media && pnpm --filter salary-data dev"],
+      "port": 3002
+    },
+    {
+      "name": "career-tips",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd ~/Desktop/recruitment-media && pnpm --filter career-tips dev"],
+      "port": 3003,
+      "autoPort": false
+    },
+    {
+      "name": "admin",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd ~/Desktop/recruitment-media && pnpm --filter admin dev"],
+      "port": 3000
+    }
+  ,{
+      "name": "mockup",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "5555", "/Users/masakatsu/Desktop/jinzai-platform/public"],
+      "port": 5555
+    }
+  ,{
+      "name": "jinzai-platform",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["-c", "cd ~/Desktop/jinzai-platform && npm run dev"],
+      "port": 3010
+    }
+  ]
+}

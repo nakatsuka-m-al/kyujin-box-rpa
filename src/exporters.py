@@ -107,6 +107,66 @@ class SheetsExporter:
             logger.info("ヘッダ行を書き込みました")
 
 
+# ─── Raw Sheets（ATS等、列マッピング不要な用途）────────────────────────────────
+
+ATS_SHEET_TAB = os.environ.get("ATS_SHEET_TAB", "ATS")
+
+
+class RawSheetsExporter:
+    """CSV の列をそのままシートに書き込む汎用エクスポーター"""
+
+    def __init__(self) -> None:
+        sa_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+        if not sa_json:
+            logger.warning("GOOGLE_SERVICE_ACCOUNT_JSON 未設定 — Sheets 書き込みをスキップします")
+            self._service = None
+            return
+
+        info = json.loads(sa_json)
+        creds = service_account.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        )
+        self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+
+    def append(self, rows: list[dict]) -> None:
+        if not self._service or not SHEET_ID:
+            logger.warning("Sheets 書き込みをスキップ（設定未完了）")
+            return
+
+        if not rows:
+            return
+
+        self._ensure_header(list(rows[0].keys()))
+
+        values = [[str(v) for v in row.values()] for row in rows]
+        self._service.spreadsheets().values().append(
+            spreadsheetId=SHEET_ID,
+            range=f"{ATS_SHEET_TAB}!A:ZZ",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body={"values": values},
+        ).execute()
+
+        logger.info(f"[ATS] Sheets に {len(values)} 行追記しました")
+
+    def _ensure_header(self, columns: list[str]) -> None:
+        result = (
+            self._service.spreadsheets()
+            .values()
+            .get(spreadsheetId=SHEET_ID, range=f"{ATS_SHEET_TAB}!A1:ZZ1")
+            .execute()
+        )
+        if not result.get("values"):
+            self._service.spreadsheets().values().update(
+                spreadsheetId=SHEET_ID,
+                range=f"{ATS_SHEET_TAB}!A1",
+                valueInputOption="RAW",
+                body={"values": [columns]},
+            ).execute()
+            logger.info("[ATS] ヘッダ行を書き込みました")
+
+
 # ─── RPM (ゼクウ) ─────────────────────────────────────────────────────────────
 # 現在は未使用（Sheets のみ稼働）。
 # API仕様書受領後の実装手順:

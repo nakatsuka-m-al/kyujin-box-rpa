@@ -1,13 +1,13 @@
-name: 求人ボックス 応募者同期
+name: ATS 応募者同期
 
 on:
   schedule:
-    # 6時間ごと（日本時間: 1時・7時・13時・19時 に相当）
-    - cron: "0 16,22,4,10 * * *"
+    # 日本時間 0時・12時・17時（UTC: 15時・3時・8時）
+    - cron: "0 15,3,8 * * *"
   workflow_dispatch:  # 手動実行用
 
 jobs:
-  sync:
+  sync-ats:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -16,14 +16,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # seen_applicant_ids.json をキャッシュから復元
-      - name: 差分キャッシュ復元
+      - name: ATSキャッシュ復元
         uses: actions/cache@v4
         with:
-          path: seen_applicant_ids.json
-          key: seen-ids-${{ github.run_id }}
+          path: seen_ats_applicant_ids.json
+          key: seen-ats-ids-${{ github.run_id }}
           restore-keys: |
-            seen-ids-
+            seen-ats-ids-
 
       - name: Python セットアップ
         uses: actions/setup-python@v5
@@ -36,12 +35,11 @@ jobs:
           pip install -r requirements.txt
           playwright install --with-deps chromium
 
-      - name: 同期実行
+      - name: ATS同期実行
         env:
-          KYUJIN_MASTER_EMAIL:         ${{ secrets.KYUJIN_MASTER_EMAIL }}
-          KYUJIN_MASTER_PASSWORD:      ${{ secrets.KYUJIN_MASTER_PASSWORD }}
-          KYUJIN_SUB_ACCOUNTS:         ${{ secrets.KYUJIN_SUB_ACCOUNTS }}
+          ATS_EMAIL:                   ${{ secrets.ATS_EMAIL }}
+          ATS_PASSWORD:                ${{ secrets.ATS_PASSWORD }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_SHEET_TAB:            ${{ secrets.GOOGLE_SHEET_TAB }}
-        run: python src/scraper.py
+          ATS_SHEET_TAB:               ${{ secrets.ATS_SHEET_TAB }}
+        run: python src/ats_scraper.py
