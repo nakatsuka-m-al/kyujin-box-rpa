@@ -88,16 +88,33 @@ def login(page) -> None:
 ATS_LIST_URL = "https://saiyo.kyujinbu.com/"
 
 
+ATS_LIST_URL = "https://saiyo.kyujinbu.com/"
+
+
 def go_to_applicant_list(page, context):
     """applicantLogin() JS経由で採用管理課（saiyo.kyujinbu.com）へ遷移後、日付URLで絞込"""
     page.locator("a[href='javascript:applicantLogin()']").click()
-    page.wait_for_load_state("networkidle")
-    logger.info(f"採用管理課 → {page.url}")
+    time.sleep(3)
+
+    # クリック後の全ページを確認
+    all_pages = context.pages
+    logger.info(f"クリック後のページ一覧: {[p.url for p in all_pages]}")
+
+    # saiyo.kyujinbu.com のページを探す
+    app_page = next((p for p in all_pages if "saiyo.kyujinbu.com" in p.url), None)
+    if app_page is None:
+        # 同一ウィンドウで遷移した場合は現在のページを待つ
+        page.wait_for_load_state("networkidle")
+        all_pages = context.pages
+        logger.info(f"wait後のページ一覧: {[p.url for p in all_pages]}")
+        app_page = next((p for p in all_pages if "saiyo.kyujinbu.com" in p.url), page)
+
+    app_page.wait_for_load_state("networkidle")
+    logger.info(f"採用管理課 → {app_page.url}")
 
     today = date.today()
     first_day = date(today.year, 4, 1)  # 一時的に4月1日から取得（後で当月1日に戻す）
 
-    # URLパラメータで日付を直接指定して読込
     url = (
         f"{ATS_LIST_URL}"
         f"?date[from_year]={first_day.year}"
@@ -107,10 +124,10 @@ def go_to_applicant_list(page, context):
         f"&date[to_month]={today.month:02d}"
         f"&date[to_day]={today.day:02d}"
     )
-    page.goto(url)
-    page.wait_for_load_state("networkidle")
-    logger.info(f"応募者一覧（{first_day}〜{today}） → {page.url}")
-    return page
+    app_page.goto(url)
+    app_page.wait_for_load_state("networkidle")
+    logger.info(f"応募者一覧（{first_day}〜{today}） → {app_page.url}")
+    return app_page
 
 
 def download_csv(page) -> bytes:
