@@ -85,56 +85,32 @@ def login(page) -> None:
     logger.info(f"ログイン完了 → {page.url}")
 
 
+ATS_LIST_URL = "https://saiyo.kyujinbu.com/"
+
+
 def go_to_applicant_list(page, context):
-    """applicantLogin() JS経由で採用管理課（saiyo.kyujinbu.com）へ遷移"""
+    """applicantLogin() JS経由で採用管理課（saiyo.kyujinbu.com）へ遷移後、日付URLで絞込"""
     page.locator("a[href='javascript:applicantLogin()']").click()
     page.wait_for_load_state("networkidle")
-    logger.info(f"応募者一覧 → {page.url}")
-    return page
+    logger.info(f"採用管理課 → {page.url}")
 
-
-def set_date_range(page) -> None:
-    """応募受付期間を当月1日〜本日に設定して絞込"""
     today = date.today()
-    first_day = date(today.year, 4, 1)  # 一時的に4月1日から取得
+    first_day = date(today.year, 4, 1)  # 一時的に4月1日から取得（後で当月1日に戻す）
 
-    # 年の値（例: "2026"）を持つselectを全て抽出して日付セレクトを特定
-    all_selects = page.locator("select").all()
-    date_selects = []
-    for sel in all_selects:
-        options = sel.locator("option").all()
-        values = [o.get_attribute("value") or o.inner_text().strip() for o in options]
-        if str(today.year) in values or str(today.year - 1) in values:
-            date_selects.append(sel)
-
-    def select_val(sel, val: int) -> None:
-        # ゼロ埋めあり・なし両方試す
-        for v in (str(val), f"{val:02d}"):
-            try:
-                sel.select_option(v)
-                return
-            except Exception:
-                pass
-        logger.warning(f"セレクト値 {val} の設定に失敗しました")
-
-    if len(date_selects) < 6:
-        logger.warning(
-            f"日付セレクトが6個見つかりません（{len(date_selects)}個）。"
-            "日付設定をスキップして全件取得します。"
-        )
-    else:
-        # [開始年, 開始月, 開始日, 終了年, 終了月, 終了日] の順を想定
-        select_val(date_selects[0], first_day.year)
-        select_val(date_selects[1], first_day.month)
-        select_val(date_selects[2], first_day.day)
-        select_val(date_selects[3], today.year)
-        select_val(date_selects[4], today.month)
-        select_val(date_selects[5], today.day)
-        logger.info(f"期間設定: {first_day} 〜 {today}")
-
-    # 読込ボタン
-    page.get_by_role("button", name="読込").click()
+    # URLパラメータで日付を直接指定して読込
+    url = (
+        f"{ATS_LIST_URL}"
+        f"?date[from_year]={first_day.year}"
+        f"&date[from_month]={first_day.month:02d}"
+        f"&date[from_day]={first_day.day:02d}"
+        f"&date[to_year]={today.year}"
+        f"&date[to_month]={today.month:02d}"
+        f"&date[to_day]={today.day:02d}"
+    )
+    page.goto(url)
     page.wait_for_load_state("networkidle")
+    logger.info(f"応募者一覧（{first_day}〜{today}） → {page.url}")
+    return page
 
 
 def download_csv(page) -> bytes:
@@ -185,7 +161,6 @@ def main() -> None:
 
             login(page)
             app_page = go_to_applicant_list(page, context)
-            set_date_range(app_page)
             raw = download_csv(app_page)
 
         finally:
