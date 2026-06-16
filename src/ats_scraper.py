@@ -86,20 +86,15 @@ def login(page) -> None:
 
 
 def go_to_applicant_list(page) -> None:
-    """cms内のリンクから採用管理課（saiyo.kyujinbu.com）へ遷移"""
-    # saiyo.kyujinbu.com へのリンクをクリック（直接gotoだとセッションが切れる）
-    link = page.locator("a[href*='saiyo.kyujinbu.com']")
-    if link.count() == 0:
-        # リンクテキストで探す
-        link = page.get_by_role("link", name="採用管理")
-    if link.count() == 0:
-        raise RuntimeError(
-            f"採用管理課へのリンクが見つかりません。現在のURL: {page.url}\n"
-            f"ページ内のリンク一覧: {[a.get_attribute('href') for a in page.locator('a').all()[:20]]}"
-        )
-    link.first.click()
-    page.wait_for_load_state("networkidle")
-    logger.info(f"応募者一覧 → {page.url}")
+    """applicantLogin() JS経由で採用管理課（saiyo.kyujinbu.com）へ遷移"""
+    # href="javascript:applicantLogin()" のリンクをクリック
+    with page.expect_popup() as popup_info:
+        page.locator("a[href='javascript:applicantLogin()']").click()
+    popup = popup_info.value
+    popup.wait_for_load_state("networkidle")
+    logger.info(f"応募者一覧 → {popup.url}")
+    # 以降の操作はpopupページで行う
+    return popup
 
 
 def set_date_range(page) -> None:
@@ -195,9 +190,9 @@ def main() -> None:
             )
 
             login(page)
-            go_to_applicant_list(page)
-            set_date_range(page)
-            raw = download_csv(page)
+            app_page = go_to_applicant_list(page)
+            set_date_range(app_page)
+            raw = download_csv(app_page)
 
         finally:
             browser.close()
