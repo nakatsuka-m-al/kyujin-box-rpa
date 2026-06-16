@@ -106,21 +106,33 @@ def set_date_range(page) -> None:
     today = date.today()
     first_day = today.replace(day=1)
 
-    # 年・月・日のセレクトボックスを操作
-    # 開始日（from）
-    page.locator("select").nth(0).select_option(str(first_day.year))
-    page.locator("select").nth(1).select_option(str(first_day.month))
-    page.locator("select").nth(2).select_option(str(first_day.day))
-    # 終了日（to）
-    page.locator("select").nth(3).select_option(str(today.year))
-    page.locator("select").nth(4).select_option(str(today.month))
-    page.locator("select").nth(5).select_option(str(today.day))
+    # 年の値（例: "2026"）を持つselectを全て抽出して日付セレクトを特定
+    all_selects = page.locator("select").all()
+    date_selects = []
+    for sel in all_selects:
+        options = sel.locator("option").all()
+        values = [o.get_attribute("value") or o.inner_text().strip() for o in options]
+        if str(today.year) in values or str(today.year - 1) in values:
+            date_selects.append(sel)
+
+    if len(date_selects) < 6:
+        logger.warning(
+            f"日付セレクトが6個見つかりません（{len(date_selects)}個）。"
+            "日付設定をスキップして全件取得します。"
+        )
+    else:
+        # [開始年, 開始月, 開始日, 終了年, 終了月, 終了日] の順を想定
+        date_selects[0].select_option(str(first_day.year))
+        date_selects[1].select_option(str(first_day.month))
+        date_selects[2].select_option(str(first_day.day))
+        date_selects[3].select_option(str(today.year))
+        date_selects[4].select_option(str(today.month))
+        date_selects[5].select_option(str(today.day))
+        logger.info(f"期間設定: {first_day} 〜 {today}")
 
     # 絞込ボタン
     page.get_by_role("button", name="絞込").click()
     page.wait_for_load_state("networkidle")
-
-    logger.info(f"期間設定: {first_day} 〜 {today}")
 
 
 def download_csv(page) -> bytes:
