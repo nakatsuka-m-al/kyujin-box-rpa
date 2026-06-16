@@ -85,12 +85,19 @@ def login(page) -> None:
     logger.info(f"ログイン完了 → {page.url}")
 
 
-APPLICANT_LIST_URL = "https://saiyo.kyujinbu.com/"
-
-
 def go_to_applicant_list(page) -> None:
-    """採用管理課の応募者一覧ページへ直接移動"""
-    page.goto(APPLICANT_LIST_URL)
+    """cms内のリンクから採用管理課（saiyo.kyujinbu.com）へ遷移"""
+    # saiyo.kyujinbu.com へのリンクをクリック（直接gotoだとセッションが切れる）
+    link = page.locator("a[href*='saiyo.kyujinbu.com']")
+    if link.count() == 0:
+        # リンクテキストで探す
+        link = page.get_by_role("link", name="採用管理")
+    if link.count() == 0:
+        raise RuntimeError(
+            f"採用管理課へのリンクが見つかりません。現在のURL: {page.url}\n"
+            f"ページ内のリンク一覧: {[a.get_attribute('href') for a in page.locator('a').all()[:20]]}"
+        )
+    link.first.click()
     page.wait_for_load_state("networkidle")
     logger.info(f"応募者一覧 → {page.url}")
 
