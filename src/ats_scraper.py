@@ -33,8 +33,8 @@ ATS_PASSWORD = os.environ["ATS_PASSWORD"]
 
 SEEN_IDS_PATH = Path("seen_ats_applicant_ids.json")
 
-# CSVの1列目（応募者IDとして使う列名）
-APPLICANT_ID_COLUMN = "お名前"  # TODO: CSV実物を見て正しい列名に修正
+# 差分管理キー列（三つ組で一意性を保証）
+KEY_COLUMNS = ("お仕事ID", "お名前", "応募受付日時")
 
 
 # ─── 差分管理 ─────────────────────────────────────────────────────────────────
@@ -183,8 +183,9 @@ def main() -> None:
     logger.info(f"CSV取得: {len(rows)} 件")
 
     for row in rows:
-        # 応募受付日時 + 名前 を複合キーとして差分管理
-        row_id = f"{row.get('応募受付日時', '')}__{row.get('お名前', '')}"
+        # お仕事ID + お名前 + 応募受付日時 の三つ組で一意管理
+        # 同一人物が別求人・別日に応募した場合も別エントリとして保持
+        row_id = "__".join(row.get(col, "") for col in KEY_COLUMNS)
         if not row_id or row_id in seen_ids:
             continue
         new_rows.append(row)
