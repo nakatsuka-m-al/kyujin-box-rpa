@@ -96,7 +96,7 @@ def go_to_applicant_list(page, context):
 def set_date_range(page) -> None:
     """応募受付期間を当月1日〜本日に設定して絞込"""
     today = date.today()
-    first_day = today.replace(day=1)
+    first_day = date(today.year, 4, 1)  # 一時的に4月1日から取得
 
     # 年の値（例: "2026"）を持つselectを全て抽出して日付セレクトを特定
     all_selects = page.locator("select").all()
