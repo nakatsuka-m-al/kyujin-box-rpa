@@ -31,7 +31,7 @@ BASE_URL   = "https://kyujinbu.com/cms/"
 ATS_EMAIL    = os.environ["ATS_EMAIL"]
 ATS_PASSWORD = os.environ["ATS_PASSWORD"]
 
-SEEN_IDS_PATH = Path("seen_ats_applicant_ids.json")
+SEEN_IDS_PATH = Path(os.environ.get("SEEN_IDS_PATH", "seen_ats_applicant_ids.json"))
 
 # 差分管理キー列（三つ組で一意性を保証）
 KEY_COLUMNS = ("お仕事ID", "お名前", "応募受付日時")

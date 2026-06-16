@@ -43,3 +43,41 @@ jobs:
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           ATS_SHEET_TAB:               ${{ secrets.ATS_SHEET_TAB }}
         run: python src/ats_scraper.py
+
+  sync-ats2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ATS2キャッシュ復元
+        uses: actions/cache@v4
+        with:
+          path: seen_ats2_applicant_ids.json
+          key: seen-ats2-ids-${{ github.run_id }}
+          restore-keys: |
+            seen-ats2-ids-
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 依存インストール
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: ATS2同期実行
+        env:
+          ATS_EMAIL:                   ${{ secrets.ATS2_EMAIL }}
+          ATS_PASSWORD:                ${{ secrets.ATS2_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
+          ATS_SHEET_TAB:               ${{ secrets.ATS2_SHEET_TAB }}
+          SEEN_IDS_PATH:               seen_ats2_applicant_ids.json
+        run: python src/ats_scraper.py
