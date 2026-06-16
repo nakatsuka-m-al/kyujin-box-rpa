@@ -91,29 +91,27 @@ ATS_LIST_URL = "https://saiyo.kyujinbu.com/"
 ATS_LIST_URL = "https://saiyo.kyujinbu.com/"
 
 
+ATS_LIST_URL = "https://saiyo.kyujinbu.com/"
+
+
 def go_to_applicant_list(page, context):
     """applicantLogin() JS経由で採用管理課（saiyo.kyujinbu.com）へ遷移後、日付URLで絞込"""
+    from datetime import timedelta
+
     page.locator("a[href='javascript:applicantLogin()']").click()
     time.sleep(3)
 
-    # クリック後の全ページを確認
+    # 新タブ・同ウィンドウどちらでも対応
     all_pages = context.pages
-    logger.info(f"クリック後のページ一覧: {[p.url for p in all_pages]}")
-
-    # saiyo.kyujinbu.com のページを探す
     app_page = next((p for p in all_pages if "saiyo.kyujinbu.com" in p.url), None)
     if app_page is None:
-        # 同一ウィンドウで遷移した場合は現在のページを待つ
         page.wait_for_load_state("networkidle")
-        all_pages = context.pages
-        logger.info(f"wait後のページ一覧: {[p.url for p in all_pages]}")
-        app_page = next((p for p in all_pages if "saiyo.kyujinbu.com" in p.url), page)
+        app_page = next((p for p in context.pages if "saiyo.kyujinbu.com" in p.url), page)
 
     app_page.wait_for_load_state("networkidle")
-    logger.info(f"採用管理課 → {app_page.url}")
 
     today = date.today()
-    first_day = date(today.year, 4, 1)  # 一時的に4月1日から取得（後で当月1日に戻す）
+    first_day = today - timedelta(days=35)  # 月またぎを安全にカバー
 
     url = (
         f"{ATS_LIST_URL}"
