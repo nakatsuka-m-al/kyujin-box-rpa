@@ -139,9 +139,7 @@ def set_date_range(page) -> None:
 
 def download_csv(page) -> bytes:
     """CSVダウンロード"""
-    dl_link = page.get_by_text("CSV ダウンロード")
-    if dl_link.count() == 0:
-        dl_link = page.get_by_role("link", name="CSVダウンロード")
+    dl_link = page.locator("a:has-text('CSV'), a:has-text('ダウンロード')")
     if dl_link.count() == 0:
         raise RuntimeError(
             "CSVダウンロードボタンが見つかりません。現在のURL: " + page.url
