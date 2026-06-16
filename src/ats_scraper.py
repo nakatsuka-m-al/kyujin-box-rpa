@@ -85,19 +85,13 @@ def login(page) -> None:
     logger.info(f"ログイン完了 → {page.url}")
 
 
+APPLICANT_LIST_URL = "https://saiyo.kyujinbu.com/"
+
+
 def go_to_applicant_list(page) -> None:
-    """左下の採用管理課ロゴ → 応募者一覧へ移動"""
-    # 左下の採用管理課ロゴ（画像リンク）をクリック
-    page.locator("img[alt*='採用管理'], a:has(img[src*='saiyou'])").first.click()
+    """採用管理課の応募者一覧ページへ直接移動"""
+    page.goto(APPLICANT_LIST_URL)
     page.wait_for_load_state("networkidle")
-    logger.info(f"採用管理画面 → {page.url}")
-
-    # 応募者一覧リンクがあればクリック（すでに一覧ページの場合はスキップ）
-    applicant_link = page.get_by_role("link", name="応募者一覧")
-    if applicant_link.count() > 0:
-        applicant_link.first.click()
-        page.wait_for_load_state("networkidle")
-
     logger.info(f"応募者一覧 → {page.url}")
 
 
@@ -130,8 +124,11 @@ def set_date_range(page) -> None:
         date_selects[5].select_option(str(today.day))
         logger.info(f"期間設定: {first_day} 〜 {today}")
 
-    # 絞込ボタン
-    page.get_by_role("button", name="絞込").click()
+    # 絞込ボタン（role=button または input[type=submit]）
+    submit = page.get_by_role("button", name="絞込")
+    if submit.count() == 0:
+        submit = page.locator("input[type='submit'][value='絞込'], input[type='submit']")
+    submit.first.click()
     page.wait_for_load_state("networkidle")
 
 
