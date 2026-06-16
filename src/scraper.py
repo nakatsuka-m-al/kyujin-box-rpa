@@ -123,8 +123,28 @@ def login(page) -> None:
 ACCOUNTS_URL = "https://saiyo.kyujinbox.com/ptr/l-accounts"
 
 
-def fetch_csv_for_subaccount(page, sub: dict) -> bytes:
-    sub_name = sub["name"]
+def fetch_all_subaccount_names(page) -> list[str]:
+    """アカウント一覧ページから全サブアカウント名を自動取得する"""
+    page.goto(ACCOUNTS_URL)
+    page.wait_for_load_state("networkidle")
+
+    page.get_by_role("link", name="直接投稿").click()
+    page.wait_for_load_state("networkidle")
+
+    # テーブルのアカウント名列にあるリンクを全取得
+    links = page.locator("table a").all()
+    names = []
+    for link in links:
+        text = link.inner_text().strip()
+        # 「求人編集」「応募者確認」などのサブリンクを除外
+        if text and text not in ("求人編集", "応募者確認", "直接投稿", "クローリング・フィード"):
+            names.append(text)
+
+    logger.info(f"サブアカウント {len(names)} 件を自動検出: {names}")
+    return names
+
+
+def fetch_csv_for_subaccount(page, sub_name: str) -> bytes:
     logger.info(f"サブアカウント切替: {sub_name}")
 
     # 毎回アカウント一覧ページに戻ってから切り替える
@@ -154,10 +174,6 @@ def fetch_csv_for_subaccount(page, sub: dict) -> bytes:
 # ─── メイン処理 ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    if not SUB_ACCOUNTS:
-        logger.warning("KYUJIN_SUB_ACCOUNTS が空です。処理終了。")
-        return
-
     seen_ids = load_seen_ids()
     new_applicants: list[dict] = []
 
@@ -190,9 +206,19 @@ def main() -> None:
             )
             login(page)
 
-            for sub in SUB_ACCOUNTS:
+            # KYUJIN_SUB_ACCOUNTS が指定されていれば優先、なければ自動取得
+            if SUB_ACCOUNTS:
+                sub_names = [s["name"] for s in SUB_ACCOUNTS]
+            else:
+                sub_names = fetch_all_subaccount_names(page)
+
+            if not sub_names:
+                logger.warning("サブアカウントが見つかりません。処理終了。")
+                return
+
+            for sub_name in sub_names:
                 try:
-                    raw = fetch_csv_for_subaccount(page, sub)
+                    raw = fetch_csv_for_subaccount(page, sub_name)
                     if not raw:
                         continue
                     applicants = parse_csv(raw)
@@ -202,16 +228,16 @@ def main() -> None:
                         aid = a.get("applicant_id", "")
                         if not aid or aid in seen_ids:
                             continue
-                        a["_subaccount_name"] = sub["name"]
+                        a["_subaccount_name"] = sub_name
                         new_applicants.append(a)
                         seen_ids.add(aid)
                         added += 1
 
-                    logger.info(f"[{sub['name']}] 取得: {len(applicants)} 件 / 新規: {added} 件")
+                    logger.info(f"[{sub_name}] 取得: {len(applicants)} 件 / 新規: {added} 件")
                     time.sleep(2)
 
                 except Exception as e:
-                    logger.error(f"[{sub.get('name')}] エラー: {e}", exc_info=True)
+                    logger.error(f"[{sub_name}] エラー: {e}", exc_info=True)
                     continue
 
         finally:
