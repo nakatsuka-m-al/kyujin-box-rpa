@@ -109,6 +109,16 @@ def set_date_range(page) -> None:
         if str(today.year) in values or str(today.year - 1) in values:
             date_selects.append(sel)
 
+    def select_val(sel, val: int) -> None:
+        # ゼロ埋めあり・なし両方試す
+        for v in (str(val), f"{val:02d}"):
+            try:
+                sel.select_option(v)
+                return
+            except Exception:
+                pass
+        logger.warning(f"セレクト値 {val} の設定に失敗しました")
+
     if len(date_selects) < 6:
         logger.warning(
             f"日付セレクトが6個見つかりません（{len(date_selects)}個）。"
@@ -116,19 +126,16 @@ def set_date_range(page) -> None:
         )
     else:
         # [開始年, 開始月, 開始日, 終了年, 終了月, 終了日] の順を想定
-        date_selects[0].select_option(str(first_day.year))
-        date_selects[1].select_option(str(first_day.month))
-        date_selects[2].select_option(str(first_day.day))
-        date_selects[3].select_option(str(today.year))
-        date_selects[4].select_option(str(today.month))
-        date_selects[5].select_option(str(today.day))
+        select_val(date_selects[0], first_day.year)
+        select_val(date_selects[1], first_day.month)
+        select_val(date_selects[2], first_day.day)
+        select_val(date_selects[3], today.year)
+        select_val(date_selects[4], today.month)
+        select_val(date_selects[5], today.day)
         logger.info(f"期間設定: {first_day} 〜 {today}")
 
-    # 絞込ボタン（role=button または input[type=submit]）
-    submit = page.get_by_role("button", name="絞込")
-    if submit.count() == 0:
-        submit = page.locator("input[type='submit'][value='絞込'], input[type='submit']")
-    submit.first.click()
+    # 読込ボタン
+    page.get_by_role("button", name="読込").click()
     page.wait_for_load_state("networkidle")
 
 
