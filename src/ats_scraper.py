@@ -87,21 +87,10 @@ def login(page) -> None:
 
 def go_to_applicant_list(page, context):
     """applicantLogin() JS経由で採用管理課（saiyo.kyujinbu.com）へ遷移"""
-    # 新しいタブで開く場合に備えて context でページ追加を監視
-    with context.expect_page(timeout=15000) as new_page_info:
-        page.locator("a[href='javascript:applicantLogin()']").click()
-        time.sleep(1)
-
-    try:
-        app_page = new_page_info.value
-        app_page.wait_for_load_state("networkidle")
-        logger.info(f"応募者一覧（新タブ） → {app_page.url}")
-        return app_page
-    except Exception:
-        # 新タブが開かなかった場合は同一ウィンドウで遷移
-        page.wait_for_load_state("networkidle")
-        logger.info(f"応募者一覧（同ウィンドウ） → {page.url}")
-        return page
+    page.locator("a[href='javascript:applicantLogin()']").click()
+    page.wait_for_load_state("networkidle")
+    logger.info(f"応募者一覧 → {page.url}")
+    return page
 
 
 def set_date_range(page) -> None:
