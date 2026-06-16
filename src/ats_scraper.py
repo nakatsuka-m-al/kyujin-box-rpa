@@ -85,16 +85,14 @@ def login(page) -> None:
     logger.info(f"ログイン完了 → {page.url}")
 
 
-def go_to_applicant_list(page) -> None:
+def go_to_applicant_list(page):
     """applicantLogin() JS経由で採用管理課（saiyo.kyujinbu.com）へ遷移"""
-    # href="javascript:applicantLogin()" のリンクをクリック
-    with page.expect_popup() as popup_info:
-        page.locator("a[href='javascript:applicantLogin()']").click()
-    popup = popup_info.value
-    popup.wait_for_load_state("networkidle")
-    logger.info(f"応募者一覧 → {popup.url}")
-    # 以降の操作はpopupページで行う
-    return popup
+    page.locator("a[href='javascript:applicantLogin()']").click()
+    # 同一ウィンドウで遷移する場合
+    page.wait_for_url("**/saiyo.kyujinbu.com/**", timeout=15000)
+    page.wait_for_load_state("networkidle")
+    logger.info(f"応募者一覧 → {page.url}")
+    return page
 
 
 def set_date_range(page) -> None:
