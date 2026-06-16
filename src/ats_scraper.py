@@ -1,7 +1,7 @@
 """
 求人部ATS 応募者データ自動取得スクリプト
-- Playwright でログイン → CSV ダウンロード → Google Sheets に差分書き込み
-- 0時・12時・17時（JST）に GitHub Actions で実行
+- Playwright でログイン → 当月分CSV取得 → Google Sheets に差分書き込み
+- 差分管理で重複書き込みを防ぐ
 """
 
 import csv
@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import time
+from datetime import date
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -24,12 +25,16 @@ logger = logging.getLogger(__name__)
 
 # ─── 設定 ────────────────────────────────────────────────────────────────────
 
-LOGIN_URL = "https://kyujinbu.com/cms/login/"
+LOGIN_URL  = "https://kyujinbu.com/cms/login/"
+BASE_URL   = "https://kyujinbu.com/cms/"
 
 ATS_EMAIL    = os.environ["ATS_EMAIL"]
 ATS_PASSWORD = os.environ["ATS_PASSWORD"]
 
 SEEN_IDS_PATH = Path("seen_ats_applicant_ids.json")
+
+# CSVの1列目（応募者IDとして使う列名）
+APPLICANT_ID_COLUMN = "お名前"  # TODO: CSV実物を見て正しい列名に修正
 
 
 # ─── 差分管理 ─────────────────────────────────────────────────────────────────
@@ -57,7 +62,10 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
         raise ValueError("CSV のエンコーディングを判別できませんでした")
 
     reader = csv.DictReader(io.StringIO(text))
-    return [dict(row) for row in reader]
+    rows = list(reader)
+    if rows:
+        logger.info(f"CSV列名: {list(rows[0].keys())}")
+    return rows
 
 
 # ─── Playwright 操作 ──────────────────────────────────────────────────────────
@@ -67,9 +75,8 @@ def login(page) -> None:
     page.goto(LOGIN_URL)
     page.wait_for_load_state("networkidle")
 
-    # TODO: 実際のフォームのセレクタに合わせて修正
-    page.locator("input[name='username'], input[type='text']").first.fill(ATS_EMAIL)
-    page.locator("input[name='password'], input[type='password']").first.fill(ATS_PASSWORD)
+    page.locator("input[type='text'], input[name*='user'], input[name*='email'], input[name*='id']").first.fill(ATS_EMAIL)
+    page.locator("input[type='password']").first.fill(ATS_PASSWORD)
     page.get_by_role("button", name="ログイン").click()
     page.wait_for_load_state("networkidle")
 
@@ -78,41 +85,57 @@ def login(page) -> None:
     logger.info(f"ログイン完了 → {page.url}")
 
 
-def download_csv(page) -> bytes:
-    """応募者一覧ページからCSVをダウンロードする"""
+def go_to_applicant_list(page) -> None:
+    """左下の採用管理課ロゴ → 応募者一覧へ移動"""
+    # 左下の採用管理課ロゴ（画像リンク）をクリック
+    page.locator("img[alt*='採用管理'], a:has(img[src*='saiyou'])").first.click()
+    page.wait_for_load_state("networkidle")
+    logger.info(f"採用管理画面 → {page.url}")
 
-    # TODO: 実際のURLとボタンセレクタに合わせて修正
-    # 応募者一覧ページに移動
-    page.get_by_role("link", name="応募者").click()
+    # 応募者一覧リンクがあればクリック（すでに一覧ページの場合はスキップ）
+    applicant_link = page.get_by_role("link", name="応募者一覧")
+    if applicant_link.count() > 0:
+        applicant_link.first.click()
+        page.wait_for_load_state("networkidle")
+
+    logger.info(f"応募者一覧 → {page.url}")
+
+
+def set_date_range(page) -> None:
+    """応募受付期間を当月1日〜本日に設定して絞込"""
+    today = date.today()
+    first_day = today.replace(day=1)
+
+    # 年・月・日のセレクトボックスを操作
+    # 開始日（from）
+    page.locator("select").nth(0).select_option(str(first_day.year))
+    page.locator("select").nth(1).select_option(str(first_day.month))
+    page.locator("select").nth(2).select_option(str(first_day.day))
+    # 終了日（to）
+    page.locator("select").nth(3).select_option(str(today.year))
+    page.locator("select").nth(4).select_option(str(today.month))
+    page.locator("select").nth(5).select_option(str(today.day))
+
+    # 絞込ボタン
+    page.get_by_role("button", name="絞込").click()
     page.wait_for_load_state("networkidle")
 
-    # CSVダウンロードボタンを探す
-    dl_candidates = [
-        "CSVダウンロード",
-        "CSV出力",
-        "エクスポート",
-        "ダウンロード",
-    ]
-    dl_link = None
-    for name in dl_candidates:
-        loc = page.get_by_role("link", name=name)
-        if loc.count() > 0:
-            dl_link = loc.first
-            break
-        loc = page.get_by_role("button", name=name)
-        if loc.count() > 0:
-            dl_link = loc.first
-            break
+    logger.info(f"期間設定: {first_day} 〜 {today}")
 
-    if dl_link is None:
+
+def download_csv(page) -> bytes:
+    """CSVダウンロード"""
+    dl_link = page.get_by_text("CSV ダウンロード")
+    if dl_link.count() == 0:
+        dl_link = page.get_by_role("link", name="CSVダウンロード")
+    if dl_link.count() == 0:
         raise RuntimeError(
-            "CSVダウンロードボタンが見つかりません。"
-            "セレクタを確認してください。現在のURL: " + page.url
+            "CSVダウンロードボタンが見つかりません。現在のURL: " + page.url
         )
 
     logger.info("CSV ダウンロード中...")
     with page.expect_download() as dl:
-        dl_link.click()
+        dl_link.first.click()
     return Path(dl.value.path()).read_bytes()
 
 
@@ -147,29 +170,32 @@ def main() -> None:
             page.add_init_script(
                 "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
             )
+
             login(page)
-
+            go_to_applicant_list(page)
+            set_date_range(page)
             raw = download_csv(page)
-            rows = parse_csv(raw)
-
-            for row in rows:
-                # 1列目をIDとして差分管理（TODO: 実際のID列名に合わせて修正）
-                row_id = list(row.values())[0] if row else ""
-                if not row_id or row_id in seen_ids:
-                    continue
-                new_rows.append(row)
-                seen_ids.add(row_id)
-
-            logger.info(f"取得: {len(rows)} 件 / 新規: {len(new_rows)} 件")
 
         finally:
             browser.close()
+
+    rows = parse_csv(raw)
+    logger.info(f"CSV取得: {len(rows)} 件")
+
+    for row in rows:
+        # 応募受付日時 + 名前 を複合キーとして差分管理
+        row_id = f"{row.get('応募受付日時', '')}__{row.get('お名前', '')}"
+        if not row_id or row_id in seen_ids:
+            continue
+        new_rows.append(row)
+        seen_ids.add(row_id)
+
+    logger.info(f"新規: {len(new_rows)} 件")
 
     if not new_rows:
         logger.info("新規応募者なし。処理終了。")
         return
 
-    logger.info(f"新規 {len(new_rows)} 件を書き込みます")
     sheets.append(new_rows)
     save_seen_ids(seen_ids)
     logger.info("完了")
