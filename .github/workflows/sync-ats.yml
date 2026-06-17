@@ -45,6 +45,7 @@ jobs:
         run: python src/ats_scraper.py
 
   sync-ats2:
+    if: false  # 応募0件のため一時停止中
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
