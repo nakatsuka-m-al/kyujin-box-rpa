@@ -169,11 +169,11 @@ class RawSheetsExporter:
             body={"requests": [{
                 "sortRange": {
                     "range": {"sheetId": gid, "startRowIndex": 1},
-                    "sortSpecs": [{"dimensionIndex": col_index, "sortOrder": "DESCENDING"}],
+                    "sortSpecs": [{"dimensionIndex": col_index, "sortOrder": "ASCENDING"}],
                 }
             }]},
         ).execute()
-        logger.info("[ATS] 応募受付日時で降順ソートしました")
+        logger.info("[ATS] 応募受付日時で昇順ソートしました")
 
     def _ensure_header(self, columns: list[str]) -> None:
         result = (
