@@ -137,7 +137,8 @@ class RawSheetsExporter:
         if not rows:
             return
 
-        self._ensure_header(list(rows[0].keys()))
+        columns = list(rows[0].keys())
+        self._ensure_header(columns)
 
         values = [[str(v) for v in row.values()] for row in rows]
         self._service.spreadsheets().values().append(
@@ -147,8 +148,32 @@ class RawSheetsExporter:
             insertDataOption="INSERT_ROWS",
             body={"values": values},
         ).execute()
-
         logger.info(f"[ATS] Sheets に {len(values)} 行追記しました")
+
+        # 応募受付日時列で降順ソート
+        if "応募受付日時" in columns:
+            self._sort_descending(columns.index("応募受付日時"))
+
+    def _get_sheet_gid(self) -> int:
+        result = self._service.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
+        for sheet in result["sheets"]:
+            if sheet["properties"]["title"] == ATS_SHEET_TAB:
+                return sheet["properties"]["sheetId"]
+        raise ValueError(f"シートタブ '{ATS_SHEET_TAB}' が見つかりません")
+
+    def _sort_descending(self, col_index: int) -> None:
+        """指定列で降順ソート（ヘッダ行を除く）"""
+        gid = self._get_sheet_gid()
+        self._service.spreadsheets().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"requests": [{
+                "sortRange": {
+                    "range": {"sheetId": gid, "startRowIndex": 1},
+                    "sortSpecs": [{"dimensionIndex": col_index, "sortOrder": "DESCENDING"}],
+                }
+            }]},
+        ).execute()
+        logger.info("[ATS] 応募受付日時で降順ソートしました")
 
     def _ensure_header(self, columns: list[str]) -> None:
         result = (
