@@ -71,12 +71,30 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
 
 # ─── Indeed 備考パース ────────────────────────────────────────────────────────
 
+# Indeedシステムが出力する固定キー（ユーザー記述の【】は除外）
+INDEED_SYSTEM_KEYS = {
+    "応募者の名前", "応募者の姓", "email",
+    "応募者の履歴書の見出し", "応募者の履歴書の概要",
+    "firstNameFurigana", "lastNameFurigana",
+    "その他の追加情報", "ユーザーの電話番号", "ユーザーの位置情報",
+    "personalDetails", "応募者のスキル", "skillsList",
+    "職務内容", "学歴", "licenses", "リンク", "功績", "資格",
+    "assessments", "関連団体", "languages", "特許", "出版物",
+    "兵役", "relocationStatuses",
+}
+
+
 def parse_indeed_biko(text: str) -> dict:
-    """備考の【】ブロックをパースしてdictに変換"""
+    """備考の【】ブロックをパースしてdictに変換（システムキーのみ）"""
     result = {}
     pattern = re.compile(r'【([^】]+)】:?\s*(.*?)(?=【|$)', re.DOTALL)
     for match in pattern.finditer(text):
-        key = f"[Indeed]{match.group(1).strip()}"
+        raw_key = match.group(1).strip()
+        # url系キーはタブや全角スペースを含むため前方一致で判定
+        is_url_key = raw_key.startswith("url")
+        if raw_key not in INDEED_SYSTEM_KEYS and not is_url_key:
+            continue
+        key = f"[Indeed]{raw_key}"
         value = match.group(2).strip()
         result[key] = value
     return result
