@@ -9,6 +9,7 @@ import io
 import json
 import logging
 import os
+import re
 import time
 from datetime import date
 from pathlib import Path
@@ -66,6 +67,32 @@ def parse_csv(raw_bytes: bytes) -> list[dict]:
     if rows:
         logger.info(f"CSV列名: {list(rows[0].keys())}")
     return rows
+
+
+# ─── Indeed 備考パース ────────────────────────────────────────────────────────
+
+def parse_indeed_biko(text: str) -> dict:
+    """備考の【】ブロックをパースしてdictに変換"""
+    result = {}
+    pattern = re.compile(r'【([^】]+)】:?\s*(.*?)(?=【|$)', re.DOTALL)
+    for match in pattern.finditer(text):
+        key = f"[Indeed]{match.group(1).strip()}"
+        value = match.group(2).strip()
+        result[key] = value
+    return result
+
+
+def enrich_indeed_rows(rows: list[dict]) -> list[dict]:
+    """Indeed応募行の備考をパースして列を追加、全行を同じキー構成に正規化"""
+    # Indeedの行を拡張
+    for row in rows:
+        if "Indeed" in row.get("応募経路", ""):
+            parsed = parse_indeed_biko(row.get("備考", ""))
+            row.update(parsed)
+
+    # 全行のキーを統一（不足分は空文字）
+    all_keys = list(dict.fromkeys(k for row in rows for k in row.keys()))
+    return [{k: row.get(k, "") for k in all_keys} for row in rows]
 
 
 # ─── Playwright 操作 ──────────────────────────────────────────────────────────
@@ -183,6 +210,7 @@ def main() -> None:
             browser.close()
 
     rows = parse_csv(raw)
+    rows = enrich_indeed_rows(rows)
     logger.info(f"CSV取得: {len(rows)} 件")
 
     for row in rows:
