@@ -156,7 +156,7 @@ def go_to_applicant_list(page, context):
     app_page.wait_for_load_state("networkidle")
 
     today = date.today()
-    first_day = date(today.year, 4, 1)  # 一時的に4月1日から全件取得
+    first_day = today - timedelta(days=35)  # 月またぎを安全にカバー
 
     url = (
         f"{ATS_LIST_URL}"
