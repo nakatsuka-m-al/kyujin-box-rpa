@@ -121,6 +121,7 @@ def go_to_applicant_list(page, context):
         f"&date[to_year]={today.year}"
         f"&date[to_month]={today.month:02d}"
         f"&date[to_day]={today.day:02d}"
+        f"&list_max=1000"
     )
     app_page.goto(url)
     app_page.wait_for_load_state("networkidle")
