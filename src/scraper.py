@@ -153,7 +153,7 @@ def fetch_csv_for_subaccount(page, sub_name: str) -> bytes:
 
     page.get_by_role("link", name="直接投稿").click()
     page.wait_for_load_state("networkidle")
-    page.get_by_role("link", name=sub_name).click()
+    page.get_by_role("link", name=sub_name, exact=True).click()
     page.wait_for_load_state("networkidle")
 
     page.get_by_role("link", name="応募者一覧").click()
