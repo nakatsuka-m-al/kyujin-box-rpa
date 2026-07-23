@@ -113,6 +113,8 @@ def login(page) -> None:
     page.wait_for_load_state("networkidle")
 
     if "login" in page.url:
+        page.screenshot(path="login_failed.png", full_page=True)
+        logger.error("ログイン失敗時のスクリーンショットを login_failed.png に保存しました")
         raise RuntimeError(
             "ログインに失敗しました。"
             "CAPTCHA が表示されているか、ID/PASSが間違っている可能性があります。"
