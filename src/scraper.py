@@ -182,6 +182,13 @@ def main() -> None:
     sheets = SheetsExporter()
     rpm = RPMExporter()
 
+    # シート上の既存IDをキャッシュに統合（キャッシュ消失時の重複防止）
+    if sheets._service:
+        sheet_ids = sheets.fetch_existing_ids()
+        before = len(seen_ids)
+        seen_ids |= sheet_ids
+        logger.info(f"シートIDをキャッシュに統合: {before} → {len(seen_ids)} 件")
+
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
             headless=True,

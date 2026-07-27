@@ -67,6 +67,23 @@ class SheetsExporter:
         )
         self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
+    def fetch_existing_ids(self) -> set[str]:
+        """シート上の既存 applicant_id を取得してキャッシュと合わせて使う"""
+        col_index = SHEETS_COLUMNS.index("applicant_id")
+        col_letter = chr(ord("A") + col_index)
+        result = (
+            self._service.spreadsheets()
+            .values()
+            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!{col_letter}2:{col_letter}10000")
+            .execute()
+        )
+        ids = set()
+        for row in result.get("values", []):
+            if row and row[0]:
+                ids.add(row[0])
+        logger.info(f"シート上の既存 applicant_id: {len(ids)} 件")
+        return ids
+
     def append(self, applicants: list[dict]) -> None:
         if not self._service or not SHEET_ID:
             logger.warning("Sheets 書き込みをスキップ（設定未完了）")
@@ -74,9 +91,19 @@ class SheetsExporter:
 
         self._ensure_header()
 
+        # シート上の既存IDと照合して重複を除外
+        existing_ids = self.fetch_existing_ids()
+        deduped = [a for a in applicants if a.get("applicant_id", "") not in existing_ids]
+        skipped = len(applicants) - len(deduped)
+        if skipped:
+            logger.info(f"{skipped} 件はシート上に既存のため書き込みをスキップ")
+        if not deduped:
+            logger.info("新規書き込みなし")
+            return
+
         rows = [
             [a.get(col, "") for col in SHEETS_COLUMNS]
-            for a in applicants
+            for a in deduped
         ]
 
         self._service.spreadsheets().values().append(
