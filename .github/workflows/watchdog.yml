@@ -1,0 +1,60 @@
+name: 監視・自動復旧
+
+# 定期実行が失敗していないか監視し、失敗していたら自動で再実行する。
+# ジョブ内リトライでは救えない「Runner割り当て失敗」等をカバーする。
+
+on:
+  schedule:
+    - cron: "15 */2 * * *"  # 2時間おき（毎時15分、混雑帯を避ける）
+  workflow_dispatch:
+
+permissions:
+  actions: write
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 失敗した実行を検知して再実行
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          for wf in sync.yml sync-ats.yml; do
+            echo "=== $wf を確認中 ==="
+
+            # 最新の完了した実行を1件取得
+            run=$(gh run list --workflow="$wf" --repo "$REPO" \
+                    --status completed --limit 1 \
+                    --json databaseId,conclusion,attempt,createdAt)
+
+            if [ "$(echo "$run" | jq 'length')" -eq 0 ]; then
+              echo "実行履歴なし。スキップ"
+              continue
+            fi
+
+            id=$(echo "$run" | jq -r '.[0].databaseId')
+            conclusion=$(echo "$run" | jq -r '.[0].conclusion')
+            attempt=$(echo "$run" | jq -r '.[0].attempt')
+            created=$(echo "$run" | jq -r '.[0].createdAt')
+
+            echo "最新: run=$id conclusion=$conclusion attempt=$attempt created=$created"
+
+            if [ "$conclusion" = "success" ]; then
+              echo "正常。何もしません"
+              continue
+            fi
+
+            # 何度も再実行して無限ループにならないよう2回までに制限
+            if [ "$attempt" -ge 2 ]; then
+              echo "既に $attempt 回試行済み。自動再実行はしません（要調査）"
+              continue
+            fi
+
+            echo "失敗を検知。再実行します"
+            gh run rerun "$id" --failed --repo "$REPO"
+          done

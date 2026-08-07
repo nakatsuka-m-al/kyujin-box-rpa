@@ -2,14 +2,15 @@ name: ATS 応募者同期
 
 on:
   schedule:
-    # 日本時間 0時・12時・17時（UTC: 15時・3時・8時）
-    - cron: "0 15,3,8 * * *"
+    # 日本時間 4:40・13:40・18:40（UTC: 19:40・4:40・9:40）
+    # UTC 15〜17時台はRunner混雑のため回避、毎時0分も混むため40分にずらす
+    - cron: "40 19,4,9 * * *"
   workflow_dispatch:  # 手動実行用
 
 jobs:
   sync-ats:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30  # リトライ3回分の余裕
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -42,11 +43,25 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           ATS_SHEET_TAB:               ${{ secrets.ATS_SHEET_TAB }}
-        run: python src/ats_scraper.py
+        # 一時的なネットワーク／Playwrightタイムアウトに備えて最大3回リトライ
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== 試行 $attempt/3 ==="
+            if python src/ats_scraper.py; then
+              echo "成功（試行 $attempt 回目）"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "失敗。60秒待って再試行します..."
+              sleep 60
+            fi
+          done
+          echo "3回すべて失敗しました"
+          exit 1
 
   sync-ats2:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30  # リトライ3回分の余裕
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -80,4 +95,18 @@ jobs:
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           ATS_SHEET_TAB:               ${{ secrets.ATS2_SHEET_TAB }}
           SEEN_IDS_PATH:               seen_ats2_applicant_ids.json
-        run: python src/ats_scraper.py
+        # 一時的なネットワーク／Playwrightタイムアウトに備えて最大3回リトライ
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== 試行 $attempt/3 ==="
+            if python src/ats_scraper.py; then
+              echo "成功（試行 $attempt 回目）"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "失敗。60秒待って再試行します..."
+              sleep 60
+            fi
+          done
+          echo "3回すべて失敗しました"
+          exit 1

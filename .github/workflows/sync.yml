@@ -2,14 +2,15 @@ name: 求人ボックス 応募者同期
 
 on:
   schedule:
-    # 6時間ごと（日本時間: 1時・7時・13時・19時 に相当）
-    - cron: "0 16,22,4,10 * * *"
+    # 6時間ごと（日本時間: 3:30・9:30・15:30・21:30）
+    # UTC 15〜17時台はRunner混雑のため回避、毎時0分も混むため30分にずらす
+    - cron: "30 18,0,6,12 * * *"
   workflow_dispatch:  # 手動実行用
 
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30  # リトライ3回分の余裕
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -44,7 +45,21 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_TAB:            ${{ secrets.GOOGLE_SHEET_TAB }}
-        run: python src/scraper.py
+        # 一時的なネットワーク／Playwrightタイムアウトに備えて最大3回リトライ
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== 試行 $attempt/3 ==="
+            if python src/scraper.py; then
+              echo "成功（試行 $attempt 回目）"
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "失敗。60秒待って再試行します..."
+              sleep 60
+            fi
+          done
+          echo "3回すべて失敗しました"
+          exit 1
 
       - name: スクリーンショットをアップロード（失敗時）
         if: failure()
