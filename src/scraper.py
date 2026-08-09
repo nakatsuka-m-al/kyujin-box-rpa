@@ -125,43 +125,51 @@ def login(page) -> None:
 ACCOUNTS_URL = "https://saiyo.kyujinbox.com/ptr/l-accounts"
 
 
-def fetch_all_subaccount_names(page) -> list[str]:
-    """アカウント一覧ページから全サブアカウント名を自動取得する"""
+EXCLUDE_LINK_TEXTS = {"求人編集", "応募者確認", "直接投稿", "クローリング・フィード"}
+
+
+def fetch_all_subaccounts(page) -> list[dict]:
+    """アカウント一覧ページから全サブアカウントの名前とhrefを取得する"""
     page.goto(ACCOUNTS_URL)
     page.wait_for_load_state("networkidle")
 
     page.get_by_role("link", name="直接投稿").click()
     page.wait_for_load_state("networkidle")
 
-    # テーブルのアカウント名列にあるリンクを全取得
     links = page.locator("table a").all()
-    names = []
+    accounts = []
     for link in links:
         text = link.inner_text().strip()
-        # 「求人編集」「応募者確認」などのサブリンクを除外
-        if text and text not in ("求人編集", "応募者確認", "直接投稿", "クローリング・フィード"):
-            names.append(text)
+        if not text or text in EXCLUDE_LINK_TEXTS:
+            continue
+        href = link.get_attribute("href") or ""
+        accounts.append({"name": text, "href": href})
 
-    logger.info(f"サブアカウント {len(names)} 件を自動検出: {names}")
-    return names
+    logger.info(f"サブアカウント {len(accounts)} 件を自動検出: {[a['name'] for a in accounts]}")
+    return accounts
 
 
-def fetch_csv_for_subaccount(page, sub_name: str) -> bytes:
-    logger.info(f"サブアカウント切替: {sub_name}")
+def fetch_csv_for_subaccount(page, account: dict) -> bytes:
+    sub_name = account["name"]
+    href = account.get("href", "")
+    logger.info(f"サブアカウント切替: {sub_name} ({href})")
 
-    # 毎回アカウント一覧ページに戻ってから切り替える
     page.goto(ACCOUNTS_URL)
     page.wait_for_load_state("networkidle")
 
     page.get_by_role("link", name="直接投稿").click()
     page.wait_for_load_state("networkidle")
-    page.get_by_role("link", name=sub_name, exact=True).click()
+
+    # hrefが取れている場合はURLで一意に特定、なければ名前で検索
+    if href:
+        page.locator(f"a[href='{href}']").click()
+    else:
+        page.get_by_role("link", name=sub_name, exact=True).click()
     page.wait_for_load_state("networkidle")
 
     page.get_by_role("link", name="応募者一覧").click()
     page.wait_for_load_state("networkidle")
 
-    # ダウンロードボタンが存在しない場合は応募者0件としてスキップ
     dl_link = page.get_by_role("link", name=" 応募者情報をダウンロード")
     if not dl_link.is_visible(timeout=5000):
         logger.info(f"[{sub_name}] 応募者なし（ダウンロードボタン未表示）")
@@ -217,17 +225,18 @@ def main() -> None:
 
             # KYUJIN_SUB_ACCOUNTS が指定されていれば優先、なければ自動取得
             if SUB_ACCOUNTS:
-                sub_names = [s["name"] for s in SUB_ACCOUNTS]
+                accounts = [{"name": s["name"], "href": s.get("href", "")} for s in SUB_ACCOUNTS]
             else:
-                sub_names = fetch_all_subaccount_names(page)
+                accounts = fetch_all_subaccounts(page)
 
-            if not sub_names:
+            if not accounts:
                 logger.warning("サブアカウントが見つかりません。処理終了。")
                 return
 
-            for sub_name in sub_names:
+            for account in accounts:
+                sub_name = account["name"]
                 try:
-                    raw = fetch_csv_for_subaccount(page, sub_name)
+                    raw = fetch_csv_for_subaccount(page, account)
                     if not raw:
                         continue
                     applicants = parse_csv(raw)
