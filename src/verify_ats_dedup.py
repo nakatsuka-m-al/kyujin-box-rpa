@@ -47,7 +47,28 @@ def main() -> None:
     logger.info(f"CSV取得: {len(rows)} 件")
 
     exporter = RawSheetsExporter()
+
+    # 診断: シート側の生の値とキーを確認する
+    import os as _os
+    tab = _os.environ.get("ATS_SHEET_TAB", "ATS")
+    raw_sheet = (
+        exporter._service.spreadsheets()
+        .values()
+        .get(spreadsheetId=_os.environ["GOOGLE_SHEET_ID"], range=f"{tab}!A:ZZ")
+        .execute()
+    ).get("values", [])
+    if raw_sheet:
+        header = raw_sheet[0]
+        logger.info(f"シートのヘッダ（先頭10列）: {header[:10]}")
+        idx = {c: (header.index(c) if c in header else None) for c in ATS_KEY_COLUMNS}
+        logger.info(f"キー列の位置: {idx}")
+        for r in raw_sheet[1:4]:
+            vals = {c: (r[i] if i is not None and i < len(r) else "<欠損>") for c, i in idx.items()}
+            logger.info(f"シート行のキー列の値: {vals}")
+
     sheet_keys = exporter.fetch_existing_keys()
+    for k in list(sheet_keys)[:5]:
+        logger.info(f"シート側キー例: {k}")
 
     if not sheet_keys:
         logger.error("シートからキーを取得できませんでした。列名を確認してください。")
