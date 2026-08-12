@@ -8,6 +8,7 @@ RPMExporter は現在未使用。API仕様書受領後に実装する。
 import json
 import logging
 import os
+import re
 from typing import Any
 
 from google.oauth2 import service_account
@@ -138,6 +139,31 @@ class SheetsExporter:
 
 ATS_SHEET_TAB = os.environ.get("ATS_SHEET_TAB", "ATS")
 
+# ATS の一意キー（ats_scraper.KEY_COLUMNS と揃える）
+ATS_KEY_COLUMNS = ("お仕事ID", "お名前", "応募受付日時")
+
+
+DATETIME_KEY_COLUMNS = {"応募受付日時"}
+
+
+def normalize_key_value(column: str, value: str) -> str:
+    """シート側の表記ゆれを吸収する。
+
+    Sheets は USER_ENTERED で書き込むと日時を再フォーマットするため
+    （"2026-08-07 10:00:00" → "2026/08/07 10:00" 等）そのまま比較できない。
+    日時列は数字だけを取り出し分単位（YYYYMMDDHHMM）で比較する。
+    秒まで見ないのは、表示形式によって秒が落ちることがあるため。
+    """
+    s = str(value or "").strip()
+    if column in DATETIME_KEY_COLUMNS:
+        return re.sub(r"\D", "", s)[:12]
+    return re.sub(r"[\s\-/:_.]", "", s)
+
+
+def build_ats_key(get_value) -> str:
+    """列名から値を引く関数を受け取り、正規化済みの一意キーを組み立てる"""
+    return "__".join(normalize_key_value(col, get_value(col)) for col in ATS_KEY_COLUMNS)
+
 
 class RawSheetsExporter:
     """CSV の列をそのままシートに書き込む汎用エクスポーター"""
@@ -156,6 +182,39 @@ class RawSheetsExporter:
         )
         self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
+    def fetch_existing_keys(self) -> set[str]:
+        """シート上の既存行から一意キーの集合を作る。
+
+        キー列がヘッダに無い等で判定できない場合は空集合を返し、
+        書き込み自体はブロックしない（取りこぼしより重複の方が復旧しやすいため）。
+        """
+        result = (
+            self._service.spreadsheets()
+            .values()
+            .get(spreadsheetId=SHEET_ID, range=f"{ATS_SHEET_TAB}!A:ZZ")
+            .execute()
+        )
+        sheet_rows = result.get("values", [])
+        if not sheet_rows:
+            return set()
+
+        header = sheet_rows[0]
+        try:
+            indices = {col: header.index(col) for col in ATS_KEY_COLUMNS}
+        except ValueError as e:
+            logger.warning(f"[ATS] キー列がシートに見つからないため重複チェックをスキップ: {e}")
+            return set()
+
+        keys = set()
+        for row in sheet_rows[1:]:
+            key = build_ats_key(
+                lambda col: row[indices[col]] if indices[col] < len(row) else ""
+            )
+            keys.add(key)
+
+        logger.info(f"[ATS] シート上の既存行: {len(keys)} 件")
+        return keys
+
     def append(self, rows: list[dict]) -> None:
         if not self._service or not SHEET_ID:
             logger.warning("Sheets 書き込みをスキップ（設定未完了）")
@@ -163,6 +222,18 @@ class RawSheetsExporter:
 
         if not rows:
             return
+
+        # シート上の既存行と照合して重複を除外（キャッシュ消失時の保険）
+        existing_keys = self.fetch_existing_keys()
+        if existing_keys:
+            deduped = [r for r in rows if build_ats_key(lambda c: r.get(c, "")) not in existing_keys]
+            skipped = len(rows) - len(deduped)
+            if skipped:
+                logger.info(f"[ATS] {skipped} 件はシート上に既存のため書き込みをスキップ")
+            rows = deduped
+            if not rows:
+                logger.info("[ATS] 新規書き込みなし")
+                return
 
         columns = list(rows[0].keys())
         self._ensure_header(columns)
