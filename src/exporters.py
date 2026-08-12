@@ -139,6 +139,10 @@ class SheetsExporter:
 
 ATS_SHEET_TAB = os.environ.get("ATS_SHEET_TAB", "ATS")
 
+# 試験用。タブが存在しない場合に自動作成してよいか。
+# 本番では設定しないこと（タブ名の設定ミスに気付けなくなるため）。
+ALLOW_CREATE_TAB = os.environ.get("ALLOW_CREATE_TAB", "").lower() == "true"
+
 # ATS の一意キー（ats_scraper.KEY_COLUMNS と揃える）
 ATS_KEY_COLUMNS = ("お仕事ID", "お名前", "応募受付日時")
 
@@ -196,6 +200,20 @@ class RawSheetsExporter:
         )
         self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
+    def _ensure_tab_exists(self) -> None:
+        """試験用タブが無ければ作る。ALLOW_CREATE_TAB=true のときだけ動く。"""
+        if not ALLOW_CREATE_TAB:
+            return
+        meta = self._service.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
+        titles = [s["properties"]["title"] for s in meta["sheets"]]
+        if ATS_SHEET_TAB in titles:
+            return
+        self._service.spreadsheets().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"requests": [{"addSheet": {"properties": {"title": ATS_SHEET_TAB}}}]},
+        ).execute()
+        logger.info(f"[ATS] タブ '{ATS_SHEET_TAB}' を新規作成しました")
+
     def fetch_existing_keys(self) -> set[str]:
         """シート上の既存行から一意キーの集合を作る。
 
@@ -236,6 +254,8 @@ class RawSheetsExporter:
 
         if not rows:
             return
+
+        self._ensure_tab_exists()
 
         # シート上の既存行と照合して重複を除外（キャッシュ消失時の保険）
         existing_keys = self.fetch_existing_keys()

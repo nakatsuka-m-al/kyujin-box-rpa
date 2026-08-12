@@ -1,0 +1,109 @@
+name: ATS 高速同期（メールトリガー）
+
+# 応募通知メールを受けて、該当アカウントだけを即時同期する。
+#
+# 既存の「ATS 応募者同期」(sync-ats.yml) には一切影響しない:
+#   - 差分キャッシュを別キーで持つ
+#   - 試験中は書き込み先を試験用タブに向ける
+# 定期実行の全件同期は保険として残し続けること。
+
+on:
+  # Apps Script からの実行命令
+  repository_dispatch:
+    types: [ats-applicant]
+  # 手動確認用
+  workflow_dispatch:
+    inputs:
+      account:
+        description: "対象アカウント"
+        required: true
+        default: "ats1"
+        type: choice
+        options: [ats1, ats2]
+      target:
+        description: "書き込み先"
+        required: true
+        default: "test"
+        type: choice
+        options: [test, production]
+
+# 複数の応募が同時に来ても直列に処理する。
+# 並行実行するとログインが競合し、差分キャッシュも壊れる。
+concurrency:
+  group: ats-fast-${{ github.event.client_payload.account || inputs.account }}
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      # dispatch 経由なら client_payload、手動なら inputs から取る
+      ACCOUNT: ${{ github.event.client_payload.account || inputs.account }}
+      TARGET:  ${{ github.event.client_payload.target  || inputs.target || 'test' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 入力値の検証
+        run: |
+          case "$ACCOUNT" in
+            ats1|ats2) ;;
+            *) echo "不正なアカウント: '$ACCOUNT'（ats1 か ats2 のみ）"; exit 1 ;;
+          esac
+          case "$TARGET" in
+            test|production) ;;
+            *) echo "不正な書き込み先: '$TARGET'"; exit 1 ;;
+          esac
+          echo "アカウント=$ACCOUNT  書き込み先=$TARGET"
+
+      # 既存の定期実行とは別キー。本番キャッシュを汚さない。
+      - name: 差分キャッシュ復元
+        uses: actions/cache@v4
+        with:
+          path: seen_ats_fast.json
+          key: seen-ats-fast-${{ env.ACCOUNT }}-${{ github.run_id }}
+          restore-keys: |
+            seen-ats-fast-${{ env.ACCOUNT }}-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Playwright ブラウザのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: 依存インストール
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: 同期実行
+        env:
+          ATS_EMAIL: ${{ env.ACCOUNT == 'ats1' && secrets.ATS_EMAIL || secrets.ATS2_EMAIL }}
+          ATS_PASSWORD: ${{ env.ACCOUNT == 'ats1' && secrets.ATS_PASSWORD || secrets.ATS2_PASSWORD }}
+          ATS_SHEET_TAB: >-
+            ${{ env.TARGET == 'production'
+                && (env.ACCOUNT == 'ats1' && secrets.ATS_SHEET_TAB || secrets.ATS2_SHEET_TAB)
+                || format('ATS_TEST_{0}', env.ACCOUNT) }}
+          # 試験中のみタブ自動作成を許可する
+          ALLOW_CREATE_TAB: ${{ env.TARGET == 'test' }}
+          SEEN_IDS_PATH: seen_ats_fast.json
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== 試行 $attempt/3 ==="
+            if python src/ats_scraper.py; then
+              echo "成功（試行 $attempt 回目）"
+              exit 0
+            fi
+            [ "$attempt" -lt 3 ] && { echo "失敗。30秒待って再試行..."; sleep 30; }
+          done
+          echo "3回すべて失敗しました"
+          exit 1
