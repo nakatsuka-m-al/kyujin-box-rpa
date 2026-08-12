@@ -10,6 +10,10 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # 高速レーン(sync-fast.yml)と同じグループ。同時書き込みによる重複を防ぐ
+    concurrency:
+      group: kyujinbox-sync
+      cancel-in-progress: false
     timeout-minutes: 30  # リトライ3回分の余裕
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true

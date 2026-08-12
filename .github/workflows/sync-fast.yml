@@ -1,0 +1,111 @@
+name: 求人ボックス 高速同期（メールトリガー）
+
+# 応募通知メールを受けて、該当サブアカウントだけを即時同期する。
+#
+# 既存の「求人ボックス 応募者同期」(sync.yml) には影響しない:
+#   - 差分キャッシュを別キーで持つ
+#   - 試験中は書き込み先を試験用タブに向ける
+# 定期実行の全件同期は、メール取りこぼしの保険として残し続けること。
+
+on:
+  repository_dispatch:
+    types: [kyujinbox-applicant]
+  workflow_dispatch:
+    inputs:
+      account_id:
+        description: "アカウントID（例: 6617-5385）"
+        required: true
+        type: string
+      target:
+        description: "書き込み先"
+        required: true
+        default: "test"
+        type: choice
+        options: [test, production]
+
+# 定期実行(sync.yml)とも共有する。同一シートへの同時書き込みを防ぐ。
+concurrency:
+  group: kyujinbox-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      ACCOUNT_ID: ${{ github.event.client_payload.account_id || inputs.account_id }}
+      TARGET: ${{ github.event.client_payload.target || inputs.target || 'test' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 入力値の検証
+        run: |
+          if [ -z "$ACCOUNT_ID" ]; then
+            echo "アカウントIDが指定されていません"; exit 1
+          fi
+          # 想定形式: 4桁-4桁
+          if ! echo "$ACCOUNT_ID" | grep -qE '^[0-9]{4}-[0-9]{4}$'; then
+            echo "アカウントIDの形式が不正です: '$ACCOUNT_ID'"; exit 1
+          fi
+          case "$TARGET" in
+            test|production) ;;
+            *) echo "不正な書き込み先: '$TARGET'"; exit 1 ;;
+          esac
+          echo "アカウントID=$ACCOUNT_ID  書き込み先=$TARGET"
+
+      # 定期実行とは別キー。本番キャッシュを汚さない。
+      - name: 差分キャッシュ復元
+        uses: actions/cache@v4
+        with:
+          path: seen_fast.json
+          key: seen-kyujinbox-fast-${{ github.run_id }}
+          restore-keys: |
+            seen-kyujinbox-fast-
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Playwright ブラウザのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: 依存インストール
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: 同期実行
+        env:
+          KYUJIN_MASTER_EMAIL: ${{ secrets.KYUJIN_MASTER_EMAIL }}
+          KYUJIN_MASTER_PASSWORD: ${{ secrets.KYUJIN_MASTER_PASSWORD }}
+          KYUJIN_TARGET_ACCOUNT_ID: ${{ env.ACCOUNT_ID }}
+          GOOGLE_SHEET_TAB: ${{ env.TARGET == 'production' && secrets.GOOGLE_SHEET_TAB || 'OBS_TEST' }}
+          ALLOW_CREATE_TAB: ${{ env.TARGET == 'test' }}
+          SEEN_IDS_PATH: seen_fast.json
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== 試行 $attempt/3 ==="
+            if python src/scraper.py; then
+              echo "成功（試行 $attempt 回目）"
+              exit 0
+            fi
+            [ "$attempt" -lt 3 ] && { echo "失敗。30秒待って再試行..."; sleep 30; }
+          done
+          echo "3回すべて失敗しました"
+          exit 1
+
+      - name: スクリーンショットをアップロード（失敗時）
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-screenshot-fast
+          path: login_failed.png
+          if-no-files-found: ignore

@@ -34,7 +34,12 @@ MASTER_PASSWORD = os.environ["KYUJIN_MASTER_PASSWORD"]
 # 例: [{"name": "株式会社ｃｏｍａｍ"}, {"name": "株式会社〇〇"}]
 SUB_ACCOUNTS: list[dict] = json.loads(os.environ.get("KYUJIN_SUB_ACCOUNTS", "[]"))
 
-SEEN_IDS_PATH = Path("seen_applicant_ids.json")
+# 高速レーンと定期実行でキャッシュを分けるため環境変数で切り替える
+SEEN_IDS_PATH = Path(os.environ.get("SEEN_IDS_PATH", "seen_applicant_ids.json"))
+
+# 指定するとそのサブアカウントだけを取得する（メールトリガー用）。
+# 値はアカウント一覧のリンク末尾と同じ形式。例: "6617-5385"
+TARGET_ACCOUNT_ID = os.environ.get("KYUJIN_TARGET_ACCOUNT_ID", "").strip()
 
 # ─── CSV カラムマッピング ──────────────────────────────────────────────────────
 COLUMN_MAP: dict[str, str] = {
@@ -126,6 +131,11 @@ ACCOUNTS_URL = "https://saiyo.kyujinbox.com/ptr/l-accounts"
 
 
 EXCLUDE_LINK_TEXTS = {"求人編集", "応募者確認", "直接投稿", "クローリング・フィード"}
+
+
+def account_id_of(href: str) -> str:
+    """/ptr/saiyo_login/6617-5385 → "6617-5385" """
+    return href.rstrip("/").rsplit("/", 1)[-1] if href else ""
 
 
 def fetch_all_subaccounts(page) -> list[dict]:
@@ -232,6 +242,20 @@ def main() -> None:
             if not accounts:
                 logger.warning("サブアカウントが見つかりません。処理終了。")
                 return
+
+            # メールトリガー時は対象アカウントだけに絞る
+            if TARGET_ACCOUNT_ID:
+                accounts = [a for a in accounts
+                            if account_id_of(a.get("href", "")) == TARGET_ACCOUNT_ID]
+                if not accounts:
+                    # 管理外のアカウント宛メールの可能性がある。
+                    # 日次スイープが保険になるので失敗扱いにはしない。
+                    logger.warning(
+                        f"アカウントID '{TARGET_ACCOUNT_ID}' は一覧に見つかりませんでした。"
+                        "管理対象外の通知の可能性があります。処理終了。"
+                    )
+                    return
+                logger.info(f"対象を1件に限定: {accounts[0]['name']} ({TARGET_ACCOUNT_ID})")
 
             for account in accounts:
                 sub_name = account["name"]

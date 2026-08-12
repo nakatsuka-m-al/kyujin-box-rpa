@@ -23,6 +23,10 @@ SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")
 SHEET_TAB = os.environ.get("GOOGLE_SHEET_TAB", "シート1")
 SHEET_RANGE = f"{SHEET_TAB}!A:Z"
 
+# 試験用。タブが存在しない場合に自動作成してよいか。
+# 本番では設定しないこと（タブ名の設定ミスに気付けなくなるため）。
+ALLOW_CREATE_TAB = os.environ.get("ALLOW_CREATE_TAB", "").lower() == "true"
+
 # Sheets に書き込む列順（COLUMN_MAP の内部キー名と対応）
 SHEETS_COLUMNS = [
     "applicant_id",
@@ -67,6 +71,20 @@ class SheetsExporter:
             scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
         self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        logger.info(f"書き込み先タブ: '{SHEET_TAB}'")
+
+    def _ensure_tab_exists(self) -> None:
+        """試験用タブが無ければ作る。ALLOW_CREATE_TAB=true のときだけ動く。"""
+        if not ALLOW_CREATE_TAB:
+            return
+        meta = self._service.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
+        if SHEET_TAB in [s["properties"]["title"] for s in meta["sheets"]]:
+            return
+        self._service.spreadsheets().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"requests": [{"addSheet": {"properties": {"title": SHEET_TAB}}}]},
+        ).execute()
+        logger.info(f"タブ '{SHEET_TAB}' を新規作成しました")
 
     def fetch_existing_ids(self) -> set[str]:
         """シート上の既存 applicant_id を取得してキャッシュと合わせて使う"""
@@ -90,6 +108,7 @@ class SheetsExporter:
             logger.warning("Sheets 書き込みをスキップ（設定未完了）")
             return
 
+        self._ensure_tab_exists()
         self._ensure_header()
 
         # シート上の既存IDと照合して重複を除外
@@ -138,10 +157,6 @@ class SheetsExporter:
 # ─── Raw Sheets（ATS等、列マッピング不要な用途）────────────────────────────────
 
 ATS_SHEET_TAB = os.environ.get("ATS_SHEET_TAB", "ATS")
-
-# 試験用。タブが存在しない場合に自動作成してよいか。
-# 本番では設定しないこと（タブ名の設定ミスに気付けなくなるため）。
-ALLOW_CREATE_TAB = os.environ.get("ALLOW_CREATE_TAB", "").lower() == "true"
 
 # ATS の一意キー（ats_scraper.KEY_COLUMNS と揃える）
 ATS_KEY_COLUMNS = ("お仕事ID", "お名前", "応募受付日時")
