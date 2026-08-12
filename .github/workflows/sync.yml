@@ -10,9 +10,9 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # 高速レーン(sync-fast.yml)と同じグループ。同時書き込みによる重複を防ぐ
+    # 定期実行同士が重ならないようにする
     concurrency:
-      group: kyujinbox-sync
+      group: kyujinbox-sweep
       cancel-in-progress: false
     timeout-minutes: 30  # リトライ3回分の余裕
     env:

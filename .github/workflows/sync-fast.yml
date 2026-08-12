@@ -23,9 +23,15 @@ on:
         type: choice
         options: [test, production]
 
-# 定期実行(sync.yml)とも共有する。同一シートへの同時書き込みを防ぐ。
+# アカウントごとに分ける。
+# 全アカウントで1グループにすると、複数社の応募が続いたときに
+# 待機中の実行がキャンセルされ、その分が取り込まれなくなる。
+# 同一アカウントが重なった場合のキャンセルは、後続が同じ処理をするため無害。
+#
+# 定期実行(sync.yml)とは分離した。万一重なっても、書き込み直前に
+# シートの既存IDを読み直すため重複は発生しない。
 concurrency:
-  group: kyujinbox-sync
+  group: kyujinbox-fast-${{ github.event.client_payload.account_id || inputs.account_id }}
   cancel-in-progress: false
 
 jobs:

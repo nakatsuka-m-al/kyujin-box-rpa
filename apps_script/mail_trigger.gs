@@ -64,6 +64,13 @@ const LABEL_NEEDS_CHECK = 'RPA要確認';  // 形式が変わった可能性。�
 /** 取りこぼし対策で少し広めに検索する */
 const SEARCH_WINDOW = 'newer_than:2d';
 
+/**
+ * 1回の実行で起動する上限。
+ * 同時に大量のログインが走ると、対象サイト側でボット検知される恐れがある。
+ * 上限を超えた分はラベルを付けないため、次回（1分後）に持ち越される。
+ */
+const MAX_DISPATCH_PER_RUN = 2;
+
 // ===== エントリポイント =====
 
 function checkAtsMail() {
@@ -157,9 +164,17 @@ function processMails(config) {
       });
     }
 
-    // 対象単位で1回だけ起動する
+    // 対象単位で1回だけ起動する。
+    // 上限を超えた分は未処理のまま残し、次回の実行で拾う。
     const doneLabel = getOrCreateLabel(LABEL_DONE);
-    Object.keys(byKey).forEach(function (key) {
+    const keys = Object.keys(byKey);
+    if (keys.length > MAX_DISPATCH_PER_RUN) {
+      console.log(
+        `[${config.name}] ${keys.length} 対象のうち ${MAX_DISPATCH_PER_RUN} 件を処理し、` +
+        `残り ${keys.length - MAX_DISPATCH_PER_RUN} 件は次回に持ち越します`
+      );
+    }
+    keys.slice(0, MAX_DISPATCH_PER_RUN).forEach(function (key) {
       const entry = byKey[key];
       try {
         dispatch(config.eventType, entry.payload, config.target);
