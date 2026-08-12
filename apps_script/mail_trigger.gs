@@ -41,7 +41,21 @@ const ATS_ACCOUNT_BY_SLUG = {
  * それらにも【アカウントID】が含まれているため、件名で応募通知に限定する。
  */
 const ATS_QUERY = 'from:do-not-reply@kyujinbu.com subject:新着応募';
-const KYUJINBOX_QUERY = 'from:notice@kyujinbox.com subject:新着応募のお知らせ';
+
+/**
+ * 求人ボックスの通知は notice@kyujinbox.com から直接ではなく、
+ * blaze-ltd.com の転送リスト経由で届く。Gmail はリストのアドレスを
+ * From として扱うため from:notice@kyujinbox.com では検索できない。
+ *
+ * 同じメールが両方のリストに重複配信されるが、
+ * アカウントID単位でまとめるため起動は1回だけになる。
+ *
+ * 転送リストを増やしたときはここに追加すること
+ * （漏れても定期実行の全件同期が保険になる）。
+ */
+const KYUJINBOX_QUERY =
+  'from:(kb_announce@blaze-ltd.com OR oubopay@blaze-ltd.com)' +
+  ' subject:新着応募のお知らせ';
 
 const LABEL_DONE = 'RPA処理済み';
 const LABEL_SKIPPED = 'RPA対象外';      // 他社宛。正常なので通知しない
@@ -266,7 +280,6 @@ function dumpDetection(name, query, extract) {
 function debugSearch() {
   const queries = [
     KYUJINBOX_QUERY,
-    'from:notice@kyujinbox.com',
     'subject:新着応募のお知らせ',
     'kyujinbox',
     ATS_QUERY,

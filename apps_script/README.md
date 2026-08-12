@@ -88,6 +88,13 @@ const TARGET = 'production';
 期限が切れると通知が止まる。止まっても気付きにくいので、
 期限日をカレンダーに登録しておくこと。
 
+**求人ボックスのメールは転送リスト経由で届く**
+`notice@kyujinbox.com` から直接ではなく、`kb_announce@blaze-ltd.com` と
+`oubopay@blaze-ltd.com` の2つの転送リストを経由する。
+Gmail はリストのアドレスを From として扱うため、
+`from:notice@kyujinbox.com` では検索できない。
+転送設定を変更したときは `KYUJINBOX_QUERY` の更新が必要。
+
 **メールが届かなかった場合**
 定期実行の全件同期（1日3回）が保険として動き続けるため、
 最終的には取り込まれる。この定期実行は止めないこと。
