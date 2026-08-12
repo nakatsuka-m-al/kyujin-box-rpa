@@ -255,7 +255,16 @@ class RawSheetsExporter:
         try:
             indices = {col: header.index(col) for col in ATS_KEY_COLUMNS}
         except ValueError as e:
-            logger.warning(f"[ATS] キー列がシートに見つからないため重複チェックをスキップ: {e}")
+            # データがあるのにキー列が無いのは設定ミス。
+            # 黙って重複チェックを飛ばすと静かに重複が積み上がるため失敗させる。
+            if len(sheet_rows) > 1:
+                raise RuntimeError(
+                    f"[ATS] シート '{ATS_SHEET_TAB}' にキー列が見つかりません: {e}\n"
+                    f"必要な列: {ATS_KEY_COLUMNS}\n"
+                    f"実際のヘッダ: {header}\n"
+                    "このまま書き込むと重複するため中断します。"
+                ) from e
+            logger.warning(f"[ATS] ヘッダのみで判定できないため重複チェックをスキップ: {e}")
             return set()
 
         keys = set()

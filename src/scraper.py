@@ -240,8 +240,12 @@ def main() -> None:
                 accounts = fetch_all_subaccounts(page)
 
             if not accounts:
-                logger.warning("サブアカウントが見つかりません。処理終了。")
-                return
+                # 32社あるはずのものが0件になるのは、ログイン状態か画面構成が
+                # 変わったということ。正常終了にすると誰も気付けないため失敗させる。
+                raise RuntimeError(
+                    "サブアカウントが1件も検出できませんでした。"
+                    f"アカウント一覧の画面構成が変わった可能性があります（URL: {page.url}）"
+                )
 
             # メールトリガー時は対象アカウントだけに絞る
             if TARGET_ACCOUNT_ID:

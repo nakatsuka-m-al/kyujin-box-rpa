@@ -1,0 +1,23 @@
+name: 死活監視（Apps Scriptからの生存通知）
+
+# Apps Script が1日1回これを起動する。
+# 実行されたという事実だけが意味を持つので、中身は何もしない。
+#
+# このワークフローが動かなくなったら、以下のいずれかが起きている:
+#   - Apps Script のトリガーが停止・無効化された
+#   - GitHub トークンが期限切れ／失効した
+#   - Apps Script 側で例外が出続けている
+# 監視ワークフロー(watchdog.yml)が最終実行からの経過時間を見て検知する。
+
+on:
+  repository_dispatch:
+    types: [heartbeat]
+  workflow_dispatch:
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 生存を記録
+        run: echo "Apps Script は稼働しています（$(date -u '+%Y-%m-%d %H:%M:%S UTC')）"

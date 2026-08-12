@@ -174,6 +174,7 @@ function processMails(config) {
         `残り ${keys.length - MAX_DISPATCH_PER_RUN} 件は次回に持ち越します`
       );
     }
+    const failures = [];
     keys.slice(0, MAX_DISPATCH_PER_RUN).forEach(function (key) {
       const entry = byKey[key];
       try {
@@ -184,12 +185,36 @@ function processMails(config) {
       } catch (e) {
         // ラベルを付けないので次回の実行で再試行される
         console.error(`[${config.name}] ${key}: 起動に失敗（次回再試行） ${e}`);
+        failures.push(`${key}: ${e}`);
       }
     });
+
+    // 例外を投げないと Apps Script が「正常終了」と判断し、
+    // Google からの障害通知メールが飛ばない。
+    // トークン切れなどが無音で放置されるのを防ぐため、最後に必ず投げる。
+    if (failures.length > 0) {
+      throw new Error(`[${config.name}] 起動に失敗: ${failures.join(' / ')}`);
+    }
 
   } finally {
     lock.releaseLock();
   }
+}
+
+// ===== 死活監視 =====
+
+/**
+ * 1日1回、生存を GitHub に知らせる。
+ *
+ * 応募が無い日は何も起動しないため、「トリガーが止まっている」のか
+ * 「応募が無いだけ」なのかを外部から区別できない。
+ * 毎日必ず1回動かすことで、監視ワークフロー側が停止を検知できるようにする。
+ *
+ * トリガー設定: sendHeartbeat を「日タイマー」で1日1回
+ */
+function sendHeartbeat() {
+  dispatch('heartbeat', {}, 'none');
+  console.log('ハートビートを送信しました');
 }
 
 function extractFromThread(thread, extract) {

@@ -1,11 +1,18 @@
 name: 監視・自動復旧
 
-# 定期実行が失敗していないか監視し、失敗していたら自動で再実行する。
-# ジョブ内リトライでは救えない「Runner割り当て失敗」等をカバーする。
+# 2つの役割がある。
+#
+# 1. 自動復旧 — 直近の実行が失敗していたら再実行する
+#    （Runner割り当て失敗など、ジョブ内リトライでは救えないもの）
+#
+# 2. 停止の検知 — 各ワークフローが「動くべき間隔で動いているか」を見る
+#    失敗は通知されるが「そもそも実行されなくなった」は通知されない。
+#    定期実行の停止、Apps Scriptのトリガー停止、トークン切れなどは
+#    すべて「静かに止まる」ため、ここで検知して失敗させ、メールを飛ばす。
 
 on:
   schedule:
-    - cron: "15 */2 * * *"  # 2時間おき（毎時15分、混雑帯を避ける）
+    - cron: "15 */6 * * *"  # 6時間おき（毎時15分、混雑帯を避ける）
   workflow_dispatch:
 
 permissions:
@@ -15,19 +22,18 @@ jobs:
   watchdog:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
 
     steps:
       - name: 失敗した実行を検知して再実行
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
           for wf in sync.yml sync-ats.yml; do
             echo "=== $wf を確認中 ==="
 
-            # 最新の完了した実行を1件取得
             run=$(gh run list --workflow="$wf" --repo "$REPO" \
                     --status completed --limit 1 \
                     --json databaseId,conclusion,attempt,createdAt)
@@ -40,12 +46,11 @@ jobs:
             id=$(echo "$run" | jq -r '.[0].databaseId')
             conclusion=$(echo "$run" | jq -r '.[0].conclusion')
             attempt=$(echo "$run" | jq -r '.[0].attempt')
-            created=$(echo "$run" | jq -r '.[0].createdAt')
 
-            echo "最新: run=$id conclusion=$conclusion attempt=$attempt created=$created"
+            echo "最新: run=$id conclusion=$conclusion attempt=$attempt"
 
             if [ "$conclusion" = "success" ]; then
-              echo "正常。何もしません"
+              echo "正常"
               continue
             fi
 
@@ -58,3 +63,51 @@ jobs:
             echo "失敗を検知。再実行します"
             gh run rerun "$id" --failed --repo "$REPO"
           done
+
+      # 再実行を待たずに鮮度を見るため、前ステップが失敗しても必ず実行する
+      - name: 停止していないか確認
+        if: always()
+        run: |
+          set -uo pipefail
+          problems=0
+
+          # 引数: ワークフロー / 許容時間(h) / 表示名
+          check_fresh() {
+            local wf="$1" limit="$2" label="$3"
+
+            local last
+            last=$(gh run list --workflow="$wf" --repo "$REPO" \
+                     --status success --limit 1 --json createdAt \
+                     --jq '.[0].createdAt // empty')
+
+            if [ -z "$last" ]; then
+              echo "::error::${label}: 成功した実行が1件もありません"
+              problems=$((problems + 1))
+              return
+            fi
+
+            local age
+            age=$(( ( $(date -u +%s) - $(date -u -d "$last" +%s) ) / 3600 ))
+
+            if [ "$age" -gt "$limit" ]; then
+              echo "::error::${label}: 最後の成功から ${age} 時間経過しています（許容 ${limit} 時間）"
+              problems=$((problems + 1))
+            else
+              echo "OK  ${label}: ${age} 時間前に成功"
+            fi
+          }
+
+          # 定期実行。間隔 + 余裕をみた値
+          check_fresh sync.yml      10 "求人ボックス 定期実行（6時間毎）"
+          check_fresh sync-ats.yml  14 "ATS 定期実行（1日3回）"
+
+          # Apps Script の死活。1日1回のハートビートが途絶えたら停止とみなす。
+          # トリガー停止・トークン切れ・転送設定の変更がここで検知される。
+          check_fresh heartbeat.yml 30 "Apps Script 死活監視（1日1回）"
+
+          echo "---"
+          if [ "$problems" -gt 0 ]; then
+            echo "::error::${problems} 件の異常を検知しました。上のログを確認してください。"
+            exit 1
+          fi
+          echo "すべて正常に稼働しています"
