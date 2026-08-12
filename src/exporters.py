@@ -95,7 +95,9 @@ class SheetsExporter:
         result = (
             self._service.spreadsheets()
             .values()
-            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!{col_letter}2:{col_letter}10000")
+            # 行数を固定すると、その行を超えた分が重複チェックから漏れる。
+            # 列全体を指定して上限をなくす。
+            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!{col_letter}2:{col_letter}")
             .execute()
         )
         ids = set()
