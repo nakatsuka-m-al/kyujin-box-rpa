@@ -35,8 +35,13 @@ const ATS_ACCOUNT_BY_SLUG = {
   blaze2: 'ats2',
 };
 
-const ATS_SENDER = 'do-not-reply@kyujinbu.com';
-const KYUJINBOX_SENDER = 'notice@kyujinbox.com';
+/**
+ * 検索条件。送信元だけでは足りない。
+ * 同じ送信元から「掲載開始のお知らせ」など応募と無関係な通知も届き、
+ * それらにも【アカウントID】が含まれているため、件名で応募通知に限定する。
+ */
+const ATS_QUERY = 'from:do-not-reply@kyujinbu.com subject:新着応募';
+const KYUJINBOX_QUERY = 'from:notice@kyujinbox.com subject:新着応募のお知らせ';
 
 const LABEL_DONE = 'RPA処理済み';
 const LABEL_SKIPPED = 'RPA対象外';      // 他社宛。正常なので通知しない
@@ -50,7 +55,7 @@ const SEARCH_WINDOW = 'newer_than:2d';
 function checkAtsMail() {
   processMails({
     name: 'ATS',
-    sender: ATS_SENDER,
+    query: ATS_QUERY,
     eventType: 'ats-applicant',
     target: TARGET_ATS,
     // 求人URL は https://kyujinbu.com/{スラッグ}/detail/post_NNN.html の形
@@ -68,7 +73,7 @@ function checkAtsMail() {
 function checkKyujinboxMail() {
   processMails({
     name: '求人ボックス',
-    sender: KYUJINBOX_SENDER,
+    query: KYUJINBOX_QUERY,
     eventType: 'kyujinbox-applicant',
     target: TARGET_KYUJINBOX,
     // 本文の 【アカウントID】 6617-5385 を拾う
@@ -95,7 +100,7 @@ function processMails(config) {
 
   try {
     const threads = GmailApp.search(
-      `from:${config.sender}` +
+      `${config.query}` +
       ` -label:${LABEL_DONE} -label:${LABEL_SKIPPED} -label:${LABEL_NEEDS_CHECK}` +
       ` ${SEARCH_WINDOW}`
     );
@@ -210,11 +215,11 @@ function testDispatchKyujinbox() {
 
 /** メールの判別確認（GitHubは呼ばない） */
 function testDetectAts() {
-  dumpDetection('ATS', ATS_SENDER, checkAtsMailExtract());
+  dumpDetection('ATS', ATS_QUERY, checkAtsMailExtract());
 }
 
 function testDetectKyujinbox() {
-  dumpDetection('求人ボックス', KYUJINBOX_SENDER, checkKyujinboxMailExtract());
+  dumpDetection('求人ボックス', KYUJINBOX_QUERY, checkKyujinboxMailExtract());
 }
 
 function checkAtsMailExtract() {
@@ -233,8 +238,8 @@ function checkKyujinboxMailExtract() {
   };
 }
 
-function dumpDetection(name, sender, extract) {
-  const threads = GmailApp.search(`from:${sender} newer_than:30d`);
+function dumpDetection(name, query, extract) {
+  const threads = GmailApp.search(`${query} newer_than:30d`);
   if (threads.length === 0) {
     console.log(`[${name}] 対象のメールが見つかりません。`);
     return;
@@ -251,5 +256,28 @@ function dumpDetection(name, sender, extract) {
       status = `対象外  [${hit.label}]`;
     }
     console.log(`${status}  <-  ${t.getFirstMessageSubject()}`);
+  });
+}
+
+/**
+ * 検索条件が合っているか調べる（一時的な診断用）。
+ * 検索でメールが見つからないときに使う。
+ */
+function debugSearch() {
+  const queries = [
+    KYUJINBOX_QUERY,
+    'from:notice@kyujinbox.com',
+    'subject:新着応募のお知らせ',
+    'kyujinbox',
+    ATS_QUERY,
+  ];
+  queries.forEach(function (q) {
+    const threads = GmailApp.search(q + ' newer_than:30d', 0, 3);
+    console.log(`=== ${q}  →  ${threads.length} 件 ===`);
+    threads.forEach(function (t) {
+      const m = t.getMessages()[0];
+      console.log(`    From: ${m.getFrom()}`);
+      console.log(`    件名: ${m.getSubject()}`);
+    });
   });
 }
