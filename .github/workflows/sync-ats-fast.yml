@@ -29,8 +29,9 @@ on:
 
 # 複数の応募が同時に来ても直列に処理する。
 # 並行実行するとログインが競合し、差分キャッシュも壊れる。
+# 定期実行(sync-ats.yml)とも共有する。同一アカウントへの同時書き込みを防ぐ
 concurrency:
-  group: ats-fast-${{ github.event.client_payload.account || inputs.account }}
+  group: ats-sync-${{ github.event.client_payload.account || inputs.account }}
   cancel-in-progress: false
 
 jobs:

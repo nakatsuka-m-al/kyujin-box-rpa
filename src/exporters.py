@@ -269,10 +269,11 @@ class RawSheetsExporter:
                 logger.info("[ATS] 新規書き込みなし")
                 return
 
-        columns = list(rows[0].keys())
-        self._ensure_header(columns)
+        # 既存シートのヘッダに合わせて値を並べる。
+        # CSV の列順のまま書くと、列が増減したときに値が別の列に入ってしまう。
+        header = self._resolve_header(rows)
 
-        values = [[str(v) for v in row.values()] for row in rows]
+        values = [[str(row.get(col, "")) for col in header] for row in rows]
         self._service.spreadsheets().values().append(
             spreadsheetId=SHEET_ID,
             range=f"{ATS_SHEET_TAB}!A:ZZ",
@@ -282,9 +283,9 @@ class RawSheetsExporter:
         ).execute()
         logger.info(f"[ATS] Sheets に {len(values)} 行追記しました")
 
-        # 応募受付日時列で降順ソート
-        if "応募受付日時" in columns:
-            self._sort_descending(columns.index("応募受付日時"))
+        # 応募受付日時列で昇順ソート
+        if "応募受付日時" in header:
+            self._sort_descending(header.index("応募受付日時"))
 
     def _get_sheet_gid(self) -> int:
         result = self._service.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
@@ -306,6 +307,49 @@ class RawSheetsExporter:
             }]},
         ).execute()
         logger.info("[ATS] 応募受付日時で昇順ソートしました")
+
+    def _resolve_header(self, rows: list[dict]) -> list[str]:
+        """書き込みに使う列の並びを決める。
+
+        既存シートのヘッダを正とする。CSV 側にしか無い列が現れた場合は
+        ヘッダの末尾に追加する（既存列の位置は動かさない）。
+        こうしないと、列が増減したときに値が別の列に入る。
+        """
+        result = (
+            self._service.spreadsheets()
+            .values()
+            .get(spreadsheetId=SHEET_ID, range=f"{ATS_SHEET_TAB}!A1:ZZ1")
+            .execute()
+        )
+        existing = (result.get("values") or [[]])[0]
+
+        # 全行のキーを順序を保ったまま集める
+        csv_columns = list(dict.fromkeys(k for row in rows for k in row.keys()))
+
+        if not existing:
+            self._write_header(csv_columns)
+            return csv_columns
+
+        added = [c for c in csv_columns if c not in existing]
+        if added:
+            logger.info(f"[ATS] 新しい列をヘッダ末尾に追加します: {added}")
+            existing = existing + added
+            self._write_header(existing)
+
+        dropped = [c for c in csv_columns if c not in existing]
+        if dropped:  # 通常は起きない
+            logger.warning(f"[ATS] ヘッダに追加できなかった列があります: {dropped}")
+
+        return existing
+
+    def _write_header(self, columns: list[str]) -> None:
+        self._service.spreadsheets().values().update(
+            spreadsheetId=SHEET_ID,
+            range=f"{ATS_SHEET_TAB}!A1",
+            valueInputOption="RAW",
+            body={"values": [columns]},
+        ).execute()
+        logger.info(f"[ATS] ヘッダ行を書き込みました（{len(columns)} 列）")
 
     def _ensure_header(self, columns: list[str]) -> None:
         result = (
