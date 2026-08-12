@@ -146,18 +146,32 @@ ATS_KEY_COLUMNS = ("お仕事ID", "お名前", "応募受付日時")
 DATETIME_KEY_COLUMNS = {"応募受付日時"}
 
 
-def normalize_key_value(column: str, value: str) -> str:
-    """シート側の表記ゆれを吸収する。
+def normalize_datetime(value: str) -> str:
+    """日時をどんな表記でも YYYYMMDDHHMM に揃える。
 
-    Sheets は USER_ENTERED で書き込むと日時を再フォーマットするため
-    （"2026-08-07 10:00:00" → "2026/08/07 10:00" 等）そのまま比較できない。
-    日時列は数字だけを取り出し分単位（YYYYMMDDHHMM）で比較する。
-    秒まで見ないのは、表示形式によって秒が落ちることがあるため。
+    Sheets は USER_ENTERED で書き込んだ日時を表示形式に変換するため、
+    CSV と同じ文字列では返ってこない。実際に観測された例:
+      CSV   : "2026-04-11 21:22:00"
+      シート: "2026年4月11日21時22分"   ← 日本語かつゼロ埋めなし
+    そのため数字を順に取り出し、年月日時分として組み直す。
+    秒は表示形式によって落ちるため比較に含めない。
     """
     s = str(value or "").strip()
+    parts = [int(p) for p in re.findall(r"\d+", s)]
+    # 年月日が揃っていて、先頭が4桁の年として妥当な場合のみ解釈する
+    if len(parts) >= 3 and 1000 <= parts[0] <= 9999:
+        nums = (parts[:5] + [0, 0])[:5]
+        y, mo, d, h, mi = nums
+        return f"{y:04d}{mo:02d}{d:02d}{h:02d}{mi:02d}"
+    # 解釈できない形式はそのまま数字を並べる（照合できずとも壊れないように）
+    return re.sub(r"\D", "", s)
+
+
+def normalize_key_value(column: str, value: str) -> str:
+    """シート側の表記ゆれを吸収する"""
     if column in DATETIME_KEY_COLUMNS:
-        return re.sub(r"\D", "", s)[:12]
-    return re.sub(r"[\s\-/:_.]", "", s)
+        return normalize_datetime(value)
+    return re.sub(r"[\s\-/:_.]", "", str(value or "").strip())
 
 
 def build_ats_key(get_value) -> str:
