@@ -17,9 +17,6 @@
 
 // ===== 設定 =====
 
-/** GitHub の Personal Access Token（Contents: Read and write） */
-const GITHUB_TOKEN = 'ここにトークンを貼る';
-
 const REPO = 'nakatsuka-m-al/kyujin-box-rpa';
 
 /** 書き込み先。検証中は 'test'、本番に切り替えるときに 'production' にする */
@@ -243,6 +240,27 @@ function extractFromThread(thread, extract) {
   return null;
 }
 
+/**
+ * GitHub の Personal Access Token を取り出す。
+ *
+ * コードには書かない。理由は2つ:
+ *   - リポジトリが公開設定のため、書くと外部から読めてしまう
+ *   - コードを貼り替えるたびに入れ直す必要があり、入れ忘れると止まる
+ *
+ * 設定場所: 左メニューの歯車（プロジェクトの設定）
+ *           → スクリプト プロパティ → プロパティ名 GITHUB_TOKEN
+ */
+function getGithubToken() {
+  const token = PropertiesService.getScriptProperties().getProperty('GITHUB_TOKEN');
+  if (!token) {
+    throw new Error(
+      'スクリプトプロパティ GITHUB_TOKEN が設定されていません。' +
+      'プロジェクトの設定 → スクリプト プロパティ から追加してください。'
+    );
+  }
+  return token;
+}
+
 /** GitHub Actions に実行命令を送る */
 function dispatch(eventType, payload, target) {
   const body = Object.assign({ target: target }, payload);
@@ -252,7 +270,7 @@ function dispatch(eventType, payload, target) {
       method: 'post',
       contentType: 'application/json',
       headers: {
-        Authorization: `Bearer ${GITHUB_TOKEN}`,
+        Authorization: `Bearer ${getGithubToken()}`,
         Accept: 'application/vnd.github+json',
       },
       payload: JSON.stringify({ event_type: eventType, client_payload: body }),
