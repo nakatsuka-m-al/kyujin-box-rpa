@@ -2,9 +2,10 @@
  * 応募通知メールを検知して GitHub Actions を起動する。
  *
  * ATS(求人部) と 求人ボックス の両方を扱う。
- * トリガーは2つ設定する:
+ * トリガーは3つ設定する:
  *   checkAtsMail        … 1分おき
  *   checkKyujinboxMail  … 1分おき
+ *   sendHeartbeat       … 1日1回（死活監視）
  *
  * 設置手順は apps_script/README.md を参照。
  *
@@ -23,7 +24,7 @@ const REPO = 'nakatsuka-m-al/kyujin-box-rpa';
 
 /** 書き込み先。検証中は 'test'、本番に切り替えるときに 'production' にする */
 const TARGET_ATS = 'production';
-const TARGET_KYUJINBOX = 'test';
+const TARGET_KYUJINBOX = 'production';
 
 /**
  * ATS: 求人URL のスラッグ → GitHub 側のアカウント名。
@@ -70,6 +71,18 @@ const SEARCH_WINDOW = 'newer_than:2d';
  * 上限を超えた分はラベルを付けないため、次回（1分後）に持ち越される。
  */
 const MAX_DISPATCH_PER_RUN = 2;
+
+/**
+ * 1回の実行で読むスレッド数の上限。
+ *
+ * 判別には本文を読む必要があり、これが処理時間の大半を占める。
+ * 上限を設けないと、未処理が溜まったときに毎分すべてを読み直すことになり、
+ * Apps Script の1日あたりの実行時間を使い切ってトリガーが止まる。
+ * （実測: 282件の読み取りに約75秒）
+ *
+ * 超過分はラベルが付かないため、次回以降の実行で順次処理される。
+ */
+const MAX_THREADS_PER_RUN = 30;
 
 // ===== エントリポイント =====
 
@@ -123,12 +136,16 @@ function processMails(config) {
     const threads = GmailApp.search(
       `${config.query}` +
       ` -label:${LABEL_DONE} -label:${LABEL_SKIPPED} -label:${LABEL_NEEDS_CHECK}` +
-      ` ${SEARCH_WINDOW}`
+      ` ${SEARCH_WINDOW}`,
+      0, MAX_THREADS_PER_RUN
     );
     if (threads.length === 0) {
       return;
     }
     console.log(`[${config.name}] 未処理のスレッド: ${threads.length} 件`);
+    if (threads.length === MAX_THREADS_PER_RUN) {
+      console.log(`[${config.name}] 上限まで取得しました。残りは次回以降に処理します`);
+    }
 
     const byKey = {};    // { キー: { payload: {...}, threads: [...] } }
     const skipped = [];  // 対象外
