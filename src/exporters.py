@@ -199,6 +199,8 @@ class RawSheetsExporter:
             scopes=["https://www.googleapis.com/auth/spreadsheets"],
         )
         self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+        # 設定ミスに気付けるよう、書き込み先を必ずログに残す
+        logger.info(f"[ATS] 書き込み先タブ: '{ATS_SHEET_TAB}'")
 
     def _ensure_tab_exists(self) -> None:
         """試験用タブが無ければ作る。ALLOW_CREATE_TAB=true のときだけ動く。"""
