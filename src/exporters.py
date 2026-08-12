@@ -88,6 +88,8 @@ class SheetsExporter:
 
     def fetch_existing_ids(self) -> set[str]:
         """シート上の既存 applicant_id を取得してキャッシュと合わせて使う"""
+        # append より先に呼ばれることがあるため、ここでもタブの存在を保証する
+        self._ensure_tab_exists()
         col_index = SHEETS_COLUMNS.index("applicant_id")
         col_letter = chr(ord("A") + col_index)
         result = (
