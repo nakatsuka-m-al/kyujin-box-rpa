@@ -1,0 +1,42 @@
+name: 監視ロジック検証（一時）
+on:
+  workflow_dispatch:
+jobs:
+  t:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 判定ロジックの検証
+        run: |
+          set -uo pipefail
+          problems=0
+          check() {
+            local last="$1" limit="$2" label="$3"
+            local age
+            age=$(( ( $(date -u +%s) - $(date -u -d "$last" +%s) ) / 3600 ))
+            if [ "$age" -gt "$limit" ]; then
+              echo "  異常検知  ${label}: ${age}時間経過（許容${limit}）"
+              problems=$((problems + 1))
+            else
+              echo "  正常      ${label}: ${age}時間前"
+            fi
+          }
+          now=$(date -u +%s)
+          t() { date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
+
+          check "$(t $((now-3600*3)))"  10 "3時間前 → 正常であるべき"
+          check "$(t $((now-3600*9)))"  10 "9時間前 → 正常であるべき"
+          check "$(t $((now-3600*11)))" 10 "11時間前 → 異常であるべき"
+          check "$(t $((now-3600*29)))" 30 "29時間前HB → 正常であるべき"
+          check "$(t $((now-3600*50)))" 30 "50時間前HB → 異常であるべき"
+
+          echo "---"
+          echo "検知した異常: ${problems} 件（期待: 2 件）"
+          if [ "$problems" -ne 2 ]; then
+            echo "判定ロジックが期待どおりに動いていません"; exit 1
+          fi
+
+          # 履歴が無い場合の扱い
+          last=""
+          if [ -z "$last" ]; then echo "履歴なしの検知: OK"; else echo "履歴なし判定が壊れています"; exit 1; fi
+
+          echo "=== 判定ロジックは正常です ==="
