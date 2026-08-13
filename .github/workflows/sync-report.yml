@@ -1,0 +1,68 @@
+name: 求人ボックス 実績レポート同期
+
+# アカウント別の実績値（表示回数・クリック数・応募数・費用など）を
+# スプレッドシートの「アカウント別」タブに記録する。
+#
+# 月ごと・アカウントごとに1行。同じ組み合わせがあれば対象列だけ上書きし、
+# 設定CPA・売上・利益といった手入力の列には触れない。
+
+on:
+  schedule:
+    # 日本時間 5:10（UTC 20:10）。混雑帯を避けた時刻。
+    - cron: "10 20 * * *"
+  workflow_dispatch:
+    inputs:
+      months:
+        description: "対象月（YYYYMM をカンマ区切り。空なら前月と当月）例: 202604,202605"
+        required: false
+        type: string
+
+concurrency:
+  group: kyujinbox-report
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Playwright ブラウザのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: 依存インストール
+        run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: 実績レポート同期
+        env:
+          KYUJIN_MASTER_EMAIL: ${{ secrets.KYUJIN_MASTER_EMAIL }}
+          KYUJIN_MASTER_PASSWORD: ${{ secrets.KYUJIN_MASTER_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          REPORT_SHEET_ID: ${{ secrets.REPORT_SHEET_ID }}
+          REPORT_SHEET_TAB: ${{ secrets.REPORT_SHEET_TAB }}
+          REPORT_MONTHS: ${{ inputs.months }}
+        run: |
+          for attempt in 1 2 3; do
+            echo "=== 試行 $attempt/3 ==="
+            if python src/report_scraper.py; then
+              echo "成功（試行 $attempt 回目）"
+              exit 0
+            fi
+            [ "$attempt" -lt 3 ] && { echo "失敗。30秒待って再試行..."; sleep 30; }
+          done
+          echo "3回すべて失敗しました"
+          exit 1
