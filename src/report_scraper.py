@@ -217,6 +217,13 @@ class ReportSheet:
         rows = max(0, len(self._sheet_rows) - (START_DATA_ROW - 1))
         logger.info(f"シートの列: A〜{self._last_col} / 既存データ行: {rows} 行")
 
+        # 列の増減が続くため、どの列に書くのかを毎回残す。
+        # 取り違えていたらここで気付ける。
+        mapping = "  ".join(
+            f"{a1_col(i)}={name}" for name, i in sorted(self._col.items(), key=lambda x: x[1])
+        )
+        logger.info(f"書き込む列: {mapping}")
+
     def _build_column_index(self) -> dict:
         """見出し → 列番号(0始まり)。部分一致も許容する。"""
         col = {}
