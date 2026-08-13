@@ -1,0 +1,40 @@
+name: 実績レポートの下調べ（読み取り専用）
+
+# どこにも書き込まない。実装前に構造を確認するためだけのもの。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Playwright ブラウザのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - run: |
+          pip install -r requirements.txt
+          playwright install --with-deps chromium
+
+      - name: 下調べ実行
+        env:
+          KYUJIN_MASTER_EMAIL: ${{ secrets.KYUJIN_MASTER_EMAIL }}
+          KYUJIN_MASTER_PASSWORD: ${{ secrets.KYUJIN_MASTER_PASSWORD }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          REPORT_SHEET_ID: ${{ secrets.REPORT_SHEET_ID }}
+          REPORT_SHEET_TAB: ${{ secrets.REPORT_SHEET_TAB }}
+        run: python src/inspect_report.py
