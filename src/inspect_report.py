@@ -24,13 +24,25 @@ REPORT_SHEET_TAB = os.environ["REPORT_SHEET_TAB"]
 
 
 def inspect_sheet() -> None:
+    info = json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"])
+    logger.info(f"サービスアカウント: {info.get('client_email')}")
+    logger.info("↑ このアドレスに編集権限が必要です")
+    logger.info(f"対象スプレッドシートID: {REPORT_SHEET_ID}")
+    logger.info(f"対象タブ: {REPORT_SHEET_TAB!r}")
+
     creds = service_account.Credentials.from_service_account_info(
-        json.loads(os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]),
-        scopes=["https://www.googleapis.com/auth/spreadsheets"],
+        info, scopes=["https://www.googleapis.com/auth/spreadsheets"],
     )
     svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
 
-    meta = svc.spreadsheets().get(spreadsheetId=REPORT_SHEET_ID).execute()
+    try:
+        meta = svc.spreadsheets().get(spreadsheetId=REPORT_SHEET_ID).execute()
+    except Exception as e:
+        logger.error("スプレッドシートを開けませんでした。原因は次のどちらかです:")
+        logger.error("  1. IDが違う（URLの d/ と /edit の間の文字列）")
+        logger.error("  2. サービスアカウントに共有されていない")
+        logger.error(f"詳細: {e}")
+        return
     logger.info(f"スプレッドシート名: {meta['properties']['title']}")
     logger.info(f"タブ一覧: {[s['properties']['title'] for s in meta['sheets']]}")
 
