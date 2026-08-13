@@ -155,18 +155,38 @@ class ReportSheet:
         self._svc = build("sheets", "v4", credentials=creds, cache_discovery=False)
         logger.info(f"書き込み先タブ: '{SHEET_TAB}'")
 
+        meta = self._svc.spreadsheets().get(spreadsheetId=SHEET_ID).execute()
+        self._gid = next(
+            (sh["properties"]["sheetId"] for sh in meta["sheets"]
+             if sh["properties"]["title"] == SHEET_TAB),
+            None,
+        )
+        if self._gid is None:
+            raise RuntimeError(f"タブ '{SHEET_TAB}' が見つかりません")
+
+        # まずヘッダだけ読んで実際の列数を知る。
+        # 余計な範囲を指定するとグリッドが広がるため、以降はこの幅に収める。
+        header_rows = (
+            self._svc.spreadsheets().values()
+            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!1:1")
+            .execute()
+        ).get("values", [])
+        if not header_rows:
+            raise RuntimeError(f"タブ '{SHEET_TAB}' にヘッダ行がありません")
+
+        self._header = header_rows[0]
+        self._last_col = a1_col(len(self._header) - 1)
+
         self._sheet_rows = (
             self._svc.spreadsheets().values()
-            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!A1:AZ")
+            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!A1:{self._last_col}")
             .execute()
         ).get("values", [])
 
-        if not self._sheet_rows:
-            raise RuntimeError(f"タブ '{SHEET_TAB}' にヘッダ行がありません")
-
-        self._header = self._sheet_rows[0]
         self._col = self._build_column_index()
-        logger.info(f"シートの既存行: {len(self._sheet_rows) - 1} 行")
+        logger.info(
+            f"シートの列: A〜{self._last_col} / 既存データ行: {len(self._sheet_rows) - 1} 行"
+        )
 
     def _build_column_index(self) -> dict:
         """見出し → 列番号(0始まり)。部分一致も許容する。"""
@@ -251,14 +271,48 @@ class ReportSheet:
             logger.info(f"既存 {len(updates) // len(self._col)} 行を更新しました")
 
         if appends:
+            rows_before = len(self._sheet_rows)   # ヘッダを含む行数
             self._svc.spreadsheets().values().append(
                 spreadsheetId=SHEET_ID,
-                range=f"{SHEET_TAB}!A:AZ",
+                range=f"{SHEET_TAB}!A:{self._last_col}",
                 valueInputOption="USER_ENTERED",
                 insertDataOption="INSERT_ROWS",
                 body={"values": appends},
             ).execute()
             logger.info(f"新規 {len(appends)} 行を追加しました")
+            self._copy_format_to_new_rows(rows_before, len(appends))
+
+    def _copy_format_to_new_rows(self, rows_before: int, added: int) -> None:
+        """追加した行に、既存データ行の書式をコピーする。
+
+        追記した行は書式を引き継がないため、通貨や％の表示が崩れる。
+        シート側の書式を正として複製することで、こちらで書式を決め打ちしない。
+        """
+        if rows_before < 2 or added <= 0:
+            logger.info("書式の複製元になる行が無いためスキップします")
+            return
+
+        width = len(self._header)
+        self._svc.spreadsheets().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"requests": [{
+                "copyPaste": {
+                    # 2行目（最初のデータ行）を複製元にする
+                    "source": {
+                        "sheetId": self._gid,
+                        "startRowIndex": 1, "endRowIndex": 2,
+                        "startColumnIndex": 0, "endColumnIndex": width,
+                    },
+                    "destination": {
+                        "sheetId": self._gid,
+                        "startRowIndex": rows_before, "endRowIndex": rows_before + added,
+                        "startColumnIndex": 0, "endColumnIndex": width,
+                    },
+                    "pasteType": "PASTE_FORMAT",
+                }
+            }]},
+        ).execute()
+        logger.info(f"追加した {added} 行に書式を複製しました")
 
 
 def a1_col(index: int) -> str:
