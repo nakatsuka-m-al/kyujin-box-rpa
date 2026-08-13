@@ -21,11 +21,16 @@ logger = logging.getLogger(__name__)
 SHEET_ID = os.environ.get("GOOGLE_SHEET_ID", "")
 # GOOGLE_SHEET_TAB でタブ名を変更可能。デフォルトは「シート1」
 SHEET_TAB = os.environ.get("GOOGLE_SHEET_TAB", "シート1")
-SHEET_RANGE = f"{SHEET_TAB}!A:Z"
+# 追記は A〜R列だけ。S列以降は利用者の計算式やアカウントID列のため触れない。
+SHEET_RANGE = f"{SHEET_TAB}!A:R"
 
 # 試験用。タブが存在しない場合に自動作成してよいか。
 # 本番では設定しないこと（タブ名の設定ミスに気付けなくなるため）。
 ALLOW_CREATE_TAB = os.environ.get("ALLOW_CREATE_TAB", "").lower() == "true"
+
+# 応募のあった求人ボックスのアカウントIDを書く列。
+# A〜R列とは離れているため、この列だけを個別に書き込む。
+ACCOUNT_ID_COLUMN = os.environ.get("ACCOUNT_ID_COLUMN", "Z")
 
 # Sheets に書き込む列順（COLUMN_MAP の内部キー名と対応）
 SHEETS_COLUMNS = [
@@ -139,6 +144,68 @@ class SheetsExporter:
         ).execute()
 
         logger.info(f"Sheets に {len(rows)} 行追記しました")
+
+    def fill_account_ids(self, account_by_applicant: dict) -> None:
+        """応募No に対応する求人ボックスのアカウントIDを ACCOUNT_ID_COLUMN に入れる。
+
+        A〜R列とは別に、この列だけを狙って書く。まとめて1行として書くと、
+        利用者が S 列以降に入れている計算式を空文字で潰してしまうため。
+        既に値が入っている行は触らない。
+        """
+        if not self._service or not SHEET_ID or not account_by_applicant:
+            return
+
+        col = ACCOUNT_ID_COLUMN
+        result = (
+            self._service.spreadsheets().values()
+            .batchGet(
+                spreadsheetId=SHEET_ID,
+                ranges=[f"{SHEET_TAB}!A2:A", f"{SHEET_TAB}!{col}2:{col}"],
+            )
+            .execute()
+        )
+        applicant_ids = [r[0] if r else "" for r in result["valueRanges"][0].get("values", [])]
+        current = [r[0] if r else "" for r in result["valueRanges"][1].get("values", [])]
+
+        updates = []
+        for i, applicant_id in enumerate(applicant_ids):
+            already = current[i] if i < len(current) else ""
+            if already:
+                continue
+            account_id = account_by_applicant.get(str(applicant_id).strip())
+            if not account_id:
+                continue
+            updates.append({
+                "range": f"{SHEET_TAB}!{col}{i + 2}",
+                "values": [[account_id]],
+            })
+
+        if not updates:
+            logger.info("アカウントIDの追記なし")
+            return
+
+        self._ensure_account_id_header()
+        self._service.spreadsheets().values().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"valueInputOption": "USER_ENTERED", "data": updates},
+        ).execute()
+        logger.info(f"{col}列にアカウントIDを {len(updates)} 行分入れました")
+
+    def _ensure_account_id_header(self) -> None:
+        col = ACCOUNT_ID_COLUMN
+        result = (
+            self._service.spreadsheets().values()
+            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!{col}1")
+            .execute()
+        )
+        if not result.get("values"):
+            self._service.spreadsheets().values().update(
+                spreadsheetId=SHEET_ID,
+                range=f"{SHEET_TAB}!{col}1",
+                valueInputOption="RAW",
+                body={"values": [["アカウントID"]]},
+            ).execute()
+            logger.info(f"{col}1 に見出しを入れました")
 
     def _ensure_header(self) -> None:
         """1行目が空なら HEADER_ROW を書き込む"""

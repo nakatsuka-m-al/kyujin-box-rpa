@@ -196,6 +196,8 @@ def fetch_csv_for_subaccount(page, account: dict) -> bytes:
 def main() -> None:
     seen_ids = load_seen_ids()
     new_applicants: list[dict] = []
+    # 応募No → アカウントID。既存行のアカウントIDを埋めるのにも使う。
+    account_by_applicant: dict[str, str] = {}
 
     sheets = SheetsExporter()
     rpm = RPMExporter()
@@ -263,6 +265,7 @@ def main() -> None:
 
             for account in accounts:
                 sub_name = account["name"]
+                account_id = account_id_of(account.get("href", ""))
                 try:
                     raw = fetch_csv_for_subaccount(page, account)
                     if not raw:
@@ -272,7 +275,12 @@ def main() -> None:
                     added = 0
                     for a in applicants:
                         aid = a.get("applicant_id", "")
-                        if not aid or aid in seen_ids:
+                        if not aid:
+                            continue
+                        # 新規かどうかに関わらず控えておく。
+                        # 既にシートにある行のアカウントIDも埋められるようにするため。
+                        account_by_applicant[aid] = account_id
+                        if aid in seen_ids:
                             continue
                         a["_subaccount_name"] = sub_name
                         new_applicants.append(a)
@@ -289,13 +297,15 @@ def main() -> None:
         finally:
             browser.close()
 
-    if not new_applicants:
-        logger.info("新規応募者なし。処理終了。")
-        return
+    if new_applicants:
+        logger.info(f"新規応募者 {len(new_applicants)} 件を書き込みます")
+        sheets.append(new_applicants)
+        # rpm.post_applicants(new_applicants)  # API仕様書受領後に有効化
+    else:
+        logger.info("新規応募者なし")
 
-    logger.info(f"新規応募者 {len(new_applicants)} 件を書き込みます")
-    sheets.append(new_applicants)
-    # rpm.post_applicants(new_applicants)  # API仕様書受領後に有効化
+    # 新規行にも既存行にもアカウントIDを入れる
+    sheets.fill_account_ids(account_by_applicant)
 
     save_seen_ids(seen_ids)
     logger.info("完了")
