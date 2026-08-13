@@ -4,6 +4,13 @@ name: 実績レポートの下調べ（読み取り専用）
 
 on:
   workflow_dispatch:
+    inputs:
+      script:
+        description: "実行するスクリプト"
+        required: true
+        default: "inspect_report"
+        type: choice
+        options: [inspect_report, verify_report_months]
 
 jobs:
   inspect:
@@ -37,4 +44,4 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           REPORT_SHEET_ID: ${{ secrets.REPORT_SHEET_ID }}
           REPORT_SHEET_TAB: ${{ secrets.REPORT_SHEET_TAB }}
-        run: python src/inspect_report.py
+        run: python src/${{ inputs.script }}.py
