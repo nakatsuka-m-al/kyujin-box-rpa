@@ -70,6 +70,20 @@ def inspect_sheet() -> None:
         col = chr(ord("A") + i) if i < 26 else "A" + chr(ord("A") + i - 26)
         logger.info(f"  {col}: {name!r}")
 
+    # 年月が日付として保存されているか文字列かを確認する。
+    # 文字列だと降順ソートで 8月 が 12月 より後になり、10月以降に破綻する。
+    raw = (
+        svc.spreadsheets().values()
+        .get(spreadsheetId=REPORT_SHEET_ID, range=f"{REPORT_SHEET_TAB}!A1:A6",
+             valueRenderOption="UNFORMATTED_VALUE")
+        .execute()
+    ).get("values", [])
+    logger.info("--- A列の実体（表示ではなく保存値）---")
+    for i, r in enumerate(raw, start=1):
+        v = r[0] if r else ""
+        kind = "数値(=日付として保存)" if isinstance(v, (int, float)) else "文字列"
+        logger.info(f"  {i}行目: {v!r}  → {kind}")
+
     logger.info(f"--- 既存データ行: {len(rows) - 1} 行 ---")
     for r_i, row in enumerate(rows[1:6], start=2):
         vals = {}
