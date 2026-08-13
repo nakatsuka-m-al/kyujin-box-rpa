@@ -9,6 +9,7 @@
 import json
 import logging
 import os
+import re
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -83,6 +84,26 @@ def inspect_sheet() -> None:
         v = r[0] if r else ""
         kind = "数値(=日付として保存)" if isinstance(v, (int, float)) else "文字列"
         logger.info(f"  {i}行目: {v!r}  → {kind}")
+
+    # 末尾の状態を確認する（関数のドラッグなどで範囲が伸びていないか）
+    tail = (
+        svc.spreadsheets().values()
+        .get(spreadsheetId=REPORT_SHEET_ID, range=f"{REPORT_SHEET_TAB}!A1:X2000")
+        .execute()
+    ).get("values", [])
+    logger.info(f"--- A1:X2000 で取得できた行数: {len(tail)} ---")
+    id_col = 2  # C列
+    last_data = 0
+    for i, r in enumerate(tail, start=1):
+        v = r[id_col] if len(r) > id_col else ""
+        if re.fullmatch(r"\d{4}-\d{4}", str(v).strip()):
+            last_data = i
+    logger.info(f"IDが入っている最後の行: {last_data} 行目")
+    for i in [last_data + 1, last_data + 2, len(tail) - 1, len(tail)]:
+        if 1 <= i <= len(tail):
+            r = tail[i - 1]
+            filled = {chr(ord("A") + j): v for j, v in enumerate(r) if v != ""}
+            logger.info(f"  {i}行目: {filled if filled else '（空）'}")
 
     logger.info(f"--- 既存データ行: {len(rows) - 1} 行 ---")
     for r_i, row in enumerate(rows[1:6], start=2):
