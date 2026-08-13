@@ -32,6 +32,9 @@ LIST_URL = "https://saiyo.kyujinbox.com/ptr/s-accounts"
 
 CHANNEL = "求人ボックス"
 
+# 2行目は利用者が関数を入れる行。読み書き・並べ替えのいずれも行わない。
+START_DATA_ROW = 3
+
 # シートの列見出し → 画面の列見出し
 # ここに無い列（設定CPA・売上・利益など）は手入力のため一切触らない
 COLUMN_SOURCE = {
@@ -104,6 +107,19 @@ def fetch_month(page, term: str) -> list[dict]:
     url = f"{LIST_URL}?li=1000&type=1&term={term}&s=tp_d"
     page.goto(url)
     page.wait_for_load_state("networkidle")
+
+    # 選べない月を指定すると、エラーにならず当月の数字が返ってくる。
+    # 画面のセレクタと突き合わせて、取り違えを防ぐ。
+    for sel in page.locator("select").all():
+        if (sel.get_attribute("name") or "") == "accounts[term]":
+            actual = sel.input_value()
+            if actual != term:
+                raise RuntimeError(
+                    f"{term} を要求しましたが、画面は {actual} を表示しています。"
+                    "その月のレポートが存在しない可能性があります。"
+                    "誤った数字を書き込まないため中断します。"
+                )
+            break
 
     table = page.locator("table").first
     headers = [h.inner_text().strip().replace("\n", "/") for h in table.locator("th").all()]
@@ -184,9 +200,22 @@ class ReportSheet:
         ).get("values", [])
 
         self._col = self._build_column_index()
-        logger.info(
-            f"シートの列: A〜{self._last_col} / 既存データ行: {len(self._sheet_rows) - 1} 行"
-        )
+
+        # 2行目は関数用に空けておく取り決め。データが入っていると
+        # 読み飛ばされて重複行が増えるため、先に気付けるようにする。
+        if len(self._sheet_rows) >= 2:
+            row2 = self._sheet_rows[1]
+            id_i = self._col["ID"]
+            val = row2[id_i] if id_i < len(row2) else ""
+            if re.fullmatch(r"\d{4}-\d{4}", str(val).strip()):
+                raise RuntimeError(
+                    f"2行目にデータ（ID={val}）が入っています。"
+                    "2行目は関数用の行として空けてください。"
+                    "このまま実行すると重複行が増えるため中断します。"
+                )
+
+        rows = max(0, len(self._sheet_rows) - (START_DATA_ROW - 1))
+        logger.info(f"シートの列: A〜{self._last_col} / 既存データ行: {rows} 行")
 
     def _build_column_index(self) -> dict:
         """見出し → 列番号(0始まり)。部分一致も許容する。"""
@@ -218,7 +247,7 @@ class ReportSheet:
         ym_i = self._col[HEADER_YEARMONTH]
         id_i = self._col["ID"]
         found = {}
-        for r, row in enumerate(self._sheet_rows[1:], start=2):
+        for r, row in enumerate(self._sheet_rows[START_DATA_ROW - 1:], start=START_DATA_ROW):
             ym = row[ym_i] if ym_i < len(row) else ""
             aid = row[id_i] if id_i < len(row) else ""
             if aid:
@@ -282,13 +311,42 @@ class ReportSheet:
             logger.info(f"新規 {len(appends)} 行を追加しました")
             self._copy_format_to_new_rows(rows_before, len(appends))
 
+        self._sort()
+
+    def _sort(self) -> None:
+        """年月の新しい順、同じ月なら費用の大きい順に並べ替える。
+
+        追記は必ず最下部に入るため、放置すると月やアカウントの並びが崩れる。
+        2行目は関数用のため対象外にする。
+        """
+        self._svc.spreadsheets().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"requests": [{
+                "sortRange": {
+                    "range": {
+                        "sheetId": self._gid,
+                        "startRowIndex": START_DATA_ROW - 1,
+                        "startColumnIndex": 0,
+                        "endColumnIndex": len(self._header),
+                    },
+                    "sortSpecs": [
+                        {"dimensionIndex": self._col[HEADER_YEARMONTH],
+                         "sortOrder": "DESCENDING"},
+                        {"dimensionIndex": self._col["費用"],
+                         "sortOrder": "DESCENDING"},
+                    ],
+                }
+            }]},
+        ).execute()
+        logger.info("年月の降順・費用の降順で並べ替えました")
+
     def _copy_format_to_new_rows(self, rows_before: int, added: int) -> None:
         """追加した行に、既存データ行の書式をコピーする。
 
         追記した行は書式を引き継がないため、通貨や％の表示が崩れる。
         シート側の書式を正として複製することで、こちらで書式を決め打ちしない。
         """
-        if rows_before < 2 or added <= 0:
+        if rows_before < START_DATA_ROW or added <= 0:
             logger.info("書式の複製元になる行が無いためスキップします")
             return
 
@@ -297,10 +355,10 @@ class ReportSheet:
             spreadsheetId=SHEET_ID,
             body={"requests": [{
                 "copyPaste": {
-                    # 2行目（最初のデータ行）を複製元にする
+                    # 最初のデータ行（3行目）を複製元にする
                     "source": {
                         "sheetId": self._gid,
-                        "startRowIndex": 1, "endRowIndex": 2,
+                        "startRowIndex": START_DATA_ROW - 1, "endRowIndex": START_DATA_ROW,
                         "startColumnIndex": 0, "endColumnIndex": width,
                     },
                     "destination": {
