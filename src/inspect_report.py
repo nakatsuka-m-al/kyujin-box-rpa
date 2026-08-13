@@ -46,6 +46,14 @@ def inspect_sheet() -> None:
     logger.info(f"スプレッドシート名: {meta['properties']['title']}")
     logger.info(f"タブ一覧: {[s['properties']['title'] for s in meta['sheets']]}")
 
+    for sh in meta["sheets"]:
+        if sh["properties"]["title"] == REPORT_SHEET_TAB:
+            grid = sh["properties"]["gridProperties"]
+            logger.info(
+                f"グリッドサイズ: {grid.get('rowCount')} 行 x {grid.get('columnCount')} 列"
+                "  ← 列数が23(W)より多ければ余分な列がある"
+            )
+
     rows = (
         svc.spreadsheets()
         .values()
