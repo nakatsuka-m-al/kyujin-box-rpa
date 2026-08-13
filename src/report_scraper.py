@@ -242,17 +242,34 @@ class ReportSheet:
             resolved[key] = resolve(key)
         return resolved
 
+    def _account_id_at(self, row: list) -> str:
+        """その行のIDセル。アカウントIDの形（0000-0000）でなければ空を返す。
+
+        関数を下方向にドラッグしていると、データが無い行にも #N/A などが残る。
+        それらを「行がある」と数えると、追加位置がずれたり無駄に並べ替えたりする。
+        """
+        i = self._col["ID"]
+        val = str(row[i] if i < len(row) else "").strip()
+        return val if re.fullmatch(r"\d{4}-\d{4}", val) else ""
+
     def _existing_index(self) -> dict:
         """(正規化した年月, ID) → シートの行番号(1始まり)"""
         ym_i = self._col[HEADER_YEARMONTH]
-        id_i = self._col["ID"]
         found = {}
         for r, row in enumerate(self._sheet_rows[START_DATA_ROW - 1:], start=START_DATA_ROW):
-            ym = row[ym_i] if ym_i < len(row) else ""
-            aid = row[id_i] if id_i < len(row) else ""
+            aid = self._account_id_at(row)
             if aid:
-                found[(normalize_yearmonth(ym), aid.strip())] = r
+                ym = row[ym_i] if ym_i < len(row) else ""
+                found[(normalize_yearmonth(ym), aid)] = r
         return found
+
+    def _last_data_row(self) -> int:
+        """IDが入っている最後の行番号。1行も無ければ START_DATA_ROW - 1。"""
+        last = START_DATA_ROW - 1
+        for r, row in enumerate(self._sheet_rows[START_DATA_ROW - 1:], start=START_DATA_ROW):
+            if self._account_id_at(row):
+                last = r
+        return last
 
     def _values_for(self, item: dict) -> dict:
         """列番号 → 書き込む値"""
@@ -271,7 +288,13 @@ class ReportSheet:
             return
 
         existing = self._existing_index()
-        updates, appends = [], []
+        last_row = self._last_data_row()
+
+        # 追記API（append）は使わない。関数をドラッグした行を「データあり」と見なして
+        # 追加位置がずれるうえ、行ごと書くと関数の入った列を消してしまうため。
+        # 既存行と同じく、担当する列だけを狙って書く。
+        updates = []
+        added = 0
 
         for item in items:
             key = (normalize_yearmonth(format_yearmonth(item["term"])), item["account_id"])
@@ -279,46 +302,35 @@ class ReportSheet:
 
             if key in existing:
                 row_no = existing[key]
-                # 手入力列を壊さないよう、対象列だけを個別に書く
-                for col_i, value in values.items():
-                    updates.append({
-                        "range": f"{SHEET_TAB}!{a1_col(col_i)}{row_no}",
-                        "values": [[value]],
-                    })
             else:
-                width = max(values) + 1
-                row = [""] * width
-                for col_i, value in values.items():
-                    row[col_i] = value
-                appends.append(row)
+                added += 1
+                row_no = last_row + added
 
-        if updates:
-            self._svc.spreadsheets().values().batchUpdate(
-                spreadsheetId=SHEET_ID,
-                body={"valueInputOption": "USER_ENTERED", "data": updates},
-            ).execute()
-            logger.info(f"既存 {len(updates) // len(self._col)} 行を更新しました")
+            for col_i, value in values.items():
+                updates.append({
+                    "range": f"{SHEET_TAB}!{a1_col(col_i)}{row_no}",
+                    "values": [[value]],
+                })
 
-        if appends:
-            rows_before = len(self._sheet_rows)   # ヘッダを含む行数
-            self._svc.spreadsheets().values().append(
-                spreadsheetId=SHEET_ID,
-                range=f"{SHEET_TAB}!A:{self._last_col}",
-                valueInputOption="USER_ENTERED",
-                insertDataOption="INSERT_ROWS",
-                body={"values": appends},
-            ).execute()
-            logger.info(f"新規 {len(appends)} 行を追加しました")
-            self._copy_format_to_new_rows(rows_before, len(appends))
+        self._svc.spreadsheets().values().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"valueInputOption": "USER_ENTERED", "data": updates},
+        ).execute()
+        logger.info(f"更新 {len(items) - added} 行 / 追加 {added} 行")
 
-        self._sort()
+        if added:
+            self._copy_format_to_new_rows(last_row, added)
 
-    def _sort(self) -> None:
+        self._sort(last_row + added)
+
+    def _sort(self, last_row: int) -> None:
         """年月の新しい順、同じ月なら費用の大きい順に並べ替える。
 
         追記は必ず最下部に入るため、放置すると月やアカウントの並びが崩れる。
-        2行目は関数用のため対象外にする。
+        2行目は関数用、データより下の行は関数のドラッグ跡なので範囲に含めない。
         """
+        if last_row < START_DATA_ROW:
+            return
         self._svc.spreadsheets().batchUpdate(
             spreadsheetId=SHEET_ID,
             body={"requests": [{
@@ -326,6 +338,7 @@ class ReportSheet:
                     "range": {
                         "sheetId": self._gid,
                         "startRowIndex": START_DATA_ROW - 1,
+                        "endRowIndex": last_row,
                         "startColumnIndex": 0,
                         "endColumnIndex": len(self._header),
                     },
@@ -338,15 +351,15 @@ class ReportSheet:
                 }
             }]},
         ).execute()
-        logger.info("年月の降順・費用の降順で並べ替えました")
+        logger.info(f"{START_DATA_ROW}〜{last_row}行目を年月の降順・費用の降順で並べ替えました")
 
-    def _copy_format_to_new_rows(self, rows_before: int, added: int) -> None:
+    def _copy_format_to_new_rows(self, last_row: int, added: int) -> None:
         """追加した行に、既存データ行の書式をコピーする。
 
         追記した行は書式を引き継がないため、通貨や％の表示が崩れる。
         シート側の書式を正として複製することで、こちらで書式を決め打ちしない。
         """
-        if rows_before < START_DATA_ROW or added <= 0:
+        if last_row < START_DATA_ROW or added <= 0:
             logger.info("書式の複製元になる行が無いためスキップします")
             return
 
@@ -363,7 +376,7 @@ class ReportSheet:
                     },
                     "destination": {
                         "sheetId": self._gid,
-                        "startRowIndex": rows_before, "endRowIndex": rows_before + added,
+                        "startRowIndex": last_row, "endRowIndex": last_row + added,
                         "startColumnIndex": 0, "endColumnIndex": width,
                     },
                     "pasteType": "PASTE_FORMAT",
