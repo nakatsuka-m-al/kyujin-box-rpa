@@ -85,25 +85,39 @@ def inspect_sheet() -> None:
         kind = "数値(=日付として保存)" if isinstance(v, (int, float)) else "文字列"
         logger.info(f"  {i}行目: {v!r}  → {kind}")
 
-    # 末尾の状態を確認する（関数のドラッグなどで範囲が伸びていないか）
-    tail = (
+    # どこまで値があるか、何が入っているかを確認する
+    props = None
+    for sh in meta["sheets"]:
+        if sh["properties"]["title"] == REPORT_SHEET_TAB:
+            props = sh["properties"]["gridProperties"]
+    logger.info(f"グリッド: {props.get('rowCount')} 行 x {props.get('columnCount')} 列")
+
+    colA = (
         svc.spreadsheets().values()
-        .get(spreadsheetId=REPORT_SHEET_ID, range=f"{REPORT_SHEET_TAB}!A1:X2000")
+        .get(spreadsheetId=REPORT_SHEET_ID, range=f"{REPORT_SHEET_TAB}!A:AA")
         .execute()
     ).get("values", [])
-    logger.info(f"--- A1:X2000 で取得できた行数: {len(tail)} ---")
-    id_col = 2  # C列
-    last_data = 0
-    for i, r in enumerate(tail, start=1):
-        v = r[id_col] if len(r) > id_col else ""
-        if re.fullmatch(r"\d{4}-\d{4}", str(v).strip()):
-            last_data = i
-    logger.info(f"IDが入っている最後の行: {last_data} 行目")
-    for i in [last_data + 1, last_data + 2, len(tail) - 1, len(tail)]:
-        if 1 <= i <= len(tail):
-            r = tail[i - 1]
-            filled = {chr(ord("A") + j): v for j, v in enumerate(r) if v != ""}
-            logger.info(f"  {i}行目: {filled if filled else '（空）'}")
+    logger.info(f"値が入っている最終行: {len(colA)} 行目")
+
+    # 遠い行に何が入っているか。数式か値かを見る。
+    for target in [200, 1200, len(colA)]:
+        if target < 2 or target > len(colA):
+            continue
+        for mode in ["FORMATTED_VALUE", "FORMULA"]:
+            r = (
+                svc.spreadsheets().values()
+                .get(spreadsheetId=REPORT_SHEET_ID,
+                     range=f"{REPORT_SHEET_TAB}!A{target}:AA{target}",
+                     valueRenderOption=mode)
+                .execute()
+            ).get("values", [[]])
+            cells = r[0] if r else []
+            filled = {}
+            for j, v in enumerate(cells):
+                if v != "":
+                    col = chr(ord("A") + j) if j < 26 else "A" + chr(ord("A") + j - 26)
+                    filled[col] = str(v)[:60]
+            logger.info(f"  {target}行目 [{mode}]: {filled if filled else '（空）'}")
 
     logger.info(f"--- 既存データ行: {len(rows) - 1} 行 ---")
     for r_i, row in enumerate(rows[1:6], start=2):
