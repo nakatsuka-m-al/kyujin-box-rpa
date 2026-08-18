@@ -191,7 +191,15 @@ function summaryRow(summary, p) {
     '職歴': p.career,
   };
 
-  const anchor = summary.header.indexOf('（Indeed）営業の種類／（求人ボックス）経歴');
+  // 見出しの改行や空白を無視して探す
+  const norm = function (v) { return String(v || '').replace(/[\s　]/g, ''); };
+  const anchorName = norm('（Indeed）営業の種類／（求人ボックス）経歴');
+  var anchor = -1;
+  summary.header.forEach(function (h, i) {
+    if (anchor === -1 && norm(h) === anchorName) anchor = i;
+  });
+
+  const front = pickByHeader(summary.header, map);
 
   return summary.header.map(function (name, i) {
     if (anchor !== -1 && i >= anchor) {
@@ -202,7 +210,7 @@ function summaryRow(summary, p) {
       // 求人ボックスはフォームが無い。M列に営業に該当する職歴を入れる
       return i === anchor ? p.salesDetail : '';
     }
-    return map[name] === undefined ? '' : map[name];
+    return front[i];
   });
 }
 
@@ -329,6 +337,7 @@ function promoteToValidSummary() {
 }
 
 function validRow(valid, get, src) {
+  // 見出しに改行や空白が入っていることがあるため、それらを無視して照合する
   const map = {
     '応募日': dateOnly(get('応募日時')),
     '応募経路': '求人媒体',
@@ -339,12 +348,24 @@ function validRow(valid, get, src) {
     '現職／離職中': employmentStatus(src),
     '現職（前職）社名': latestCompany(src.career || get('職歴')),
     '最終学歴': degreeOf(src.education || ''),
-    '現職（前職）職種\n※大分類': jobCategory(src, 'major'),
-    '現職（前職）職種\n※中分類': jobCategory(src, 'minor'),
+    '現職（前職）職種※大分類': jobCategory(src, 'major'),
+    '現職（前職）職種※中分類': jobCategory(src, 'minor'),
     '大学名／学校名': get('学歴'),          // 応募まとめの時点で学校名だけになっている
   };
-  return valid.header.map(function (name) {
-    return map[name] === undefined ? '' : map[name];
+  return pickByHeader(valid.header, map);
+}
+
+/**
+ * 見出しの名前で値を並べる。
+ * 見出しに改行・空白・全角空白が混ざっていても一致させる。
+ */
+function pickByHeader(header, map) {
+  const norm = function (s) { return String(s || '').replace(/[\s　]/g, ''); };
+  const table = {};
+  Object.keys(map).forEach(function (k) { table[norm(k)] = map[k]; });
+  return header.map(function (name) {
+    const v = table[norm(name)];
+    return v === undefined ? '' : v;
   });
 }
 
