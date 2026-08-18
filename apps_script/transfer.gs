@@ -473,6 +473,9 @@ function sendFormRequests() {
     const sentCol = ensureColumn(sheet, MAIL_SENT_HEADER);
     const table = readSheet(book, '応募情報（ATS）');
 
+    // 応募通知メールから先に送っている場合があるため、履歴も見る
+    const history = openHistory();
+
     const mailIndex = table.index['メールアドレス'];
     const nameIndex = table.index['お名前'];
     if (mailIndex === undefined) throw new Error('列 メールアドレス が見つかりません');
@@ -495,6 +498,13 @@ function sendFormRequests() {
       const address = String(row[mailIndex] || '').trim();
       if (!isValidAddress(address)) continue;
 
+      // 通知メール経由で送信済みなら、送らずに記録だけ合わせる
+      if (history.has(address)) {
+        sheet.getRange(rowNo, sentCol).setValue(new Date());
+        skipped++;
+        continue;
+      }
+
       const name = String(row[nameIndex] || '').trim() || 'ご応募者';
       const to = MAIL_TEST_TO || address;
 
@@ -508,6 +518,7 @@ function sendFormRequests() {
 
       // 送信できたものだけ記録する。失敗した行は次回やり直せる。
       sheet.getRange(rowNo, sentCol).setValue(new Date());
+      history.add(address, name, '転記後');
       sent++;
       Logger.log(`送信: ${name} → ${to}${MAIL_TEST_TO ? `（本来は ${address}）` : ''}`);
     }
@@ -594,4 +605,163 @@ function runAll() {
 
   // 例外を投げないとGoogleからの障害通知が飛ばない
   if (failures.length) throw new Error(failures.join(' / '));
+}
+
+// ============================================================
+// アンケートを応募通知メールから直接送る（最速の経路）
+//
+//   ATSの応募通知メールには、応募者のお名前とメールアドレスが載っている。
+//   取り込みや転記を待たずに送れるため、応募から1〜2分で届く。
+//
+//   取りこぼしに備えて、転記後に送る sendFormRequests も残してある。
+//   どちらから送っても二重にならないよう、送信履歴シートで管理する。
+//
+// トリガー設定:
+//   sendSurveyFromNotice を「分ベースのタイマー」1分おき
+// ============================================================
+
+/**
+ * アンケートを送る対象のクライアント。
+ * 応募通知メールの「拠点名・管理NO」と一致した応募者にだけ送る。
+ * 空にすると誰にも送らない（誤送信を防ぐため、既定では動かさない）。
+ */
+const SURVEY_TARGET_CLIENT = '';
+
+const ATS_NOTICE_QUERY = 'from:do-not-reply@kyujinbu.com subject:新着応募';
+
+const LABEL_SURVEY_SENT = 'アンケート送信済み';
+const LABEL_SURVEY_SKIP = 'アンケート対象外';
+
+/** 送信済みを記録するシート。転記後に送る経路とも共有する */
+const HISTORY_SHEET = 'メール送信履歴';
+
+/** 1回の実行で送る上限 */
+const MAX_SURVEY_PER_RUN = 10;
+
+function sendSurveyFromNotice() {
+  if (!SURVEY_TARGET_CLIENT) {
+    Logger.log('SURVEY_TARGET_CLIENT が未設定のため何もしません');
+    return;
+  }
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) {
+    Logger.log('前回の処理が実行中のためスキップ');
+    return;
+  }
+
+  try {
+    const threads = GmailApp.search(
+      `${ATS_NOTICE_QUERY} -label:${LABEL_SURVEY_SENT} -label:${LABEL_SURVEY_SKIP} newer_than:2d`,
+      0, 30
+    );
+    if (threads.length === 0) return;
+    Logger.log(`未処理の通知メール: ${threads.length} 件`);
+
+    const history = openHistory();
+    const sentLabel = getOrCreateLabel(LABEL_SURVEY_SENT);
+    const skipLabel = getOrCreateLabel(LABEL_SURVEY_SKIP);
+
+    var sent = 0;
+    var skipped = 0;
+
+    for (var i = 0; i < threads.length; i++) {
+      if (sent >= MAX_SURVEY_PER_RUN) {
+        Logger.log(`上限 ${MAX_SURVEY_PER_RUN} 件に達したため残りは次回`);
+        break;
+      }
+
+      const info = parseNotice(threads[i]);
+
+      // 対象クライアント以外、宛先が読めないものは送らない
+      if (!info || info.client !== SURVEY_TARGET_CLIENT || !isValidAddress(info.mail)) {
+        threads[i].addLabel(skipLabel);
+        skipped++;
+        continue;
+      }
+
+      // 転記後の経路で既に送っていればやり直さない
+      if (history.has(info.mail)) {
+        threads[i].addLabel(sentLabel);
+        skipped++;
+        continue;
+      }
+
+      const to = MAIL_TEST_TO || info.mail;
+      const body = MAIL_BODY.replace('{name}', info.name || 'ご応募者')
+                            .replace('{form}', FORM_URL);
+
+      MailApp.sendEmail(buildMailOptions(to, MAIL_TEST_TO
+        ? `※テスト送信です。本来の宛先: ${info.mail}\n\n${body}`
+        : body));
+
+      // 送れたものだけ記録する。失敗した分は次回やり直される。
+      history.add(info.mail, info.name, '応募通知メール');
+      threads[i].addLabel(sentLabel);
+      sent++;
+      Logger.log(`送信: ${info.name} → ${to}${MAIL_TEST_TO ? `（本来は ${info.mail}）` : ''}`);
+    }
+
+    Logger.log(`送信 ${sent} 件 / 対象外・送信済み ${skipped} 件`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * 応募通知メールから、拠点名・お名前・メールアドレスを取り出す。
+ * 本文は「項目 ： 値」の形で並んでいる。
+ */
+function parseNotice(thread) {
+  const messages = thread.getMessages();
+  for (var i = 0; i < messages.length; i++) {
+    const body = messages[i].getPlainBody();
+    const pick = function (label) {
+      const m = body.match(new RegExp(label + '\\s*[：:]\\s*(.+)'));
+      return m ? m[1].trim() : '';
+    };
+    const mail = pick('メールアドレス');
+    if (mail) {
+      return {
+        client: pick('拠点名・管理NO'),
+        name: pick('お名前'),
+        mail: mail,
+      };
+    }
+  }
+  return null;
+}
+
+// ===== 送信履歴 =====
+
+/** 送信済みのメールアドレスを記録するシートを扱う */
+function openHistory() {
+  const book = SpreadsheetApp.openById(DST_ID);
+  var sheet = book.getSheetByName(HISTORY_SHEET);
+  if (!sheet) {
+    sheet = book.insertSheet(HISTORY_SHEET);
+    sheet.getRange(1, 1, 1, 4)
+      .setValues([['送信日時', 'お名前', 'メールアドレス', '経路']]);
+    sheet.setFrozenRows(1);
+    Logger.log(`シート '${HISTORY_SHEET}' を作りました`);
+  }
+
+  const lastRow = sheet.getLastRow();
+  const sentAddresses = {};
+  if (lastRow >= 2) {
+    sheet.getRange(2, 3, lastRow - 1, 1).getDisplayValues().forEach(function (r) {
+      const a = String(r[0] || '').trim().toLowerCase();
+      if (a) sentAddresses[a] = true;
+    });
+  }
+
+  return {
+    has: function (mail) {
+      return !!sentAddresses[String(mail || '').trim().toLowerCase()];
+    },
+    add: function (mail, name, route) {
+      sheet.appendRow([new Date(), name || '', mail, route]);
+      sentAddresses[String(mail || '').trim().toLowerCase()] = true;
+    },
+  };
 }
