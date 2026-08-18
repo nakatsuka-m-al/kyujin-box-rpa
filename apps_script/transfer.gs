@@ -25,9 +25,12 @@ const DST_ID = '108O_PWeXENQe1Lbz64q9lYzXsGHPBlOCb0poDVxc_-o';
 /**
  * 対象クライアントの絞り込み。
  * ALL_ATSOBS は BP列（暗号）、OBS は S列（暗号）で判定する。
- * 空にすると絞り込みなし。該当データが入ったら '2F3146F147' を設定する。
+ * 空にすると絞り込みなし（＝全社が転記先に入るので注意）。
+ *
+ *   '7A5EDD2B8C' … 株式会社バイク王＆カンパニー（動作確認用）
+ *   '2F3146F147' … 本番の対象クライアント。データが入ったらこちらに変更する
  */
-const FILTER_CODE = '';
+const FILTER_CODE = '7A5EDD2B8C';
 
 /** true の間は書き込まず、何が起きるかをログに出すだけ */
 const DRY_RUN = true;
