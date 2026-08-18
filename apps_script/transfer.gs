@@ -340,3 +340,49 @@ function columnLetter(n) {
   }
   return s;
 }
+
+/**
+ * ATS側の職歴・学歴の中身をそのまま出す（書き込まない）。
+ * 会社名や学校名を取り出せる形式かどうかを判断するために使う。
+ */
+function dumpAtsCareerSample() {
+  const src = readSheet(SpreadsheetApp.openById(SRC_ID), 'ALL_ATSOBS');
+  const targets = ['[Indeed]職務内容', '[Indeed]学歴', '[Indeed]personalDetails',
+                   '[Indeed]応募者の履歴書の概要'];
+
+  var shown = 0;
+  for (var i = 0; i < src.rows.length && shown < 3; i++) {
+    const get = function (name) { return valueOf(src, src.rows[i], name); };
+    const career = String(get('[Indeed]職務内容') || '');
+    // 中身のある行だけ見たい（_total: 0 は空を意味する）
+    if (career === '' || career.indexOf('_total: 0') === 0) continue;
+
+    shown++;
+    Logger.log(`========== ${shown}件目: ${get('お名前')} ==========`);
+    targets.forEach(function (name) {
+      const v = String(get(name) || '');
+      Logger.log(`--- ${name} ---`);
+      Logger.log(v === '' ? '（空）' : v.slice(0, 1500));
+    });
+    Logger.log('');
+  }
+
+  if (shown === 0) {
+    Logger.log('職務内容に中身のある行が見つかりませんでした');
+  }
+}
+
+/** 求人ボックス側の職歴サンプル（書き込まない） */
+function dumpKyujinboxCareerSample() {
+  const src = readSheet(SpreadsheetApp.openById(SRC_ID), 'OBS');
+  var shown = 0;
+  for (var i = 0; i < src.rows.length && shown < 3; i++) {
+    const get = function (name) { return valueOf(src, src.rows[i], name); };
+    const career = String(get('職歴') || '');
+    if (career === '') continue;
+    shown++;
+    Logger.log(`===== ${shown}件目: ${get('氏名')} / 現在の職業=${get('現在の職業')} =====`);
+    Logger.log(career.slice(0, 1200));
+    Logger.log('');
+  }
+}
