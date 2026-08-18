@@ -69,12 +69,22 @@ function aggregateToSummary() {
       .forEach(function (k) { existing[k] = true; });
   });
 
-  // フォーム回答をメール／電話で引けるようにする
+  // フォーム回答をメール／電話で引けるようにする。
+  // 「経験年数」という同名の列が3つあるため、名前では引けない。
+  // 「営業の種類」以降を位置で切り出し、応募まとめの同じ並びに写す。
+  const formAnchor = form.header.indexOf('営業の種類');
+  if (formAnchor === -1) throw new Error('Indeedシートに 営業の種類 列がありません');
+
   const answers = {};
   form.rows.forEach(function (row) {
-    const rec = {};
-    form.header.forEach(function (h, i) { if (h) rec[h] = row[i]; });
-    contactKeys(rec['メールアドレス'], rec['電話番号']).forEach(function (k) {
+    const rec = {
+      mail: valueOf(form, row, 'メールアドレス'),
+      tel: valueOf(form, row, '電話番号'),
+      birth: valueOf(form, row, '生年月日'),
+      salesType: row[formAnchor],
+      block: row.slice(formAnchor),   // 営業の種類 以降をまとめて持つ
+    };
+    contactKeys(rec.mail, rec.tel).forEach(function (k) {
       answers[k] = rec;   // 同じ人が複数回答した場合は後の回答で上書き
     });
   });
@@ -90,7 +100,7 @@ function aggregateToSummary() {
     const answer = firstMatch(answers, keys);
     if (!answer) { reasons.回答なし++; return; }
 
-    if (String(answer['営業の種類'] || '').indexOf(REQUIRED_SALES_TYPE) === -1) {
+    if (String(answer.salesType || '').indexOf(REQUIRED_SALES_TYPE) === -1) {
       reasons.営業種別++; return;
     }
 
@@ -139,35 +149,35 @@ function aggregateToSummary() {
   Logger.log(`[応募まとめ] ${rows.length} 行を追加しました`);
 }
 
-/** 応募まとめの1行を組み立てる。A列「有効」は手動なので空のまま */
+/**
+ * 応募まとめの1行を組み立てる。A列「有効」は手動なので空のまま。
+ * M列以降はフォーム回答をそのままの並びで写す。
+ */
 function summaryRow(summary, p) {
   const map = {
-    '応募日時': p.appliedAt,
+    '応募日時': formatDateTime(p.appliedAt),
     'お名前': p.name,
     'フリガナ': p.kana,
     '性別': p.gender,
-    '生年月日': p.birth,
+    '生年月日': formatDate(p.birth),
     '年齢': p.age,
     'ご住所': p.address,
     'メールアドレス': p.mail,
     '電話番号': p.tel,
     '学歴': p.education,
     '職歴': p.career,
-    '（Indeed）営業の種類／（求人ボックス）経歴': p.salesDetail,
-    '経験年数': p.years,
-    '接客販売の種類': p.retailType,
-    '個人目標の有無': p.hasGoal,
-    '目標概要（個人目標「有」を選択の方のみ）': p.goal,
   };
-  // 「経験年数」は同名の列が3つある。左から順に埋める
-  const extraYears = [p.years, p.years2, p.years3];
-  var yearsSeen = 0;
 
-  return summary.header.map(function (name) {
-    if (name === '経験年数') {
-      const v = extraYears[yearsSeen];
-      yearsSeen++;
-      return v === undefined ? '' : v;
+  const anchor = summary.header.indexOf('（Indeed）営業の種類／（求人ボックス）経歴');
+
+  return summary.header.map(function (name, i) {
+    if (anchor !== -1 && i >= anchor) {
+      if (p.formBlock) {
+        const v = p.formBlock[i - anchor];
+        return v === undefined ? '' : v;
+      }
+      // 求人ボックスはフォームが無い。M列に営業に該当する職歴を入れる
+      return i === anchor ? p.salesDetail : '';
     }
     return map[name] === undefined ? '' : map[name];
   });
@@ -192,18 +202,14 @@ function atsPerson(get, answer) {
     gender: firstNonEmpty([details['性別'], get('性別')]),
     birth: birth,
     age: ageOf(birth),
-    address: get('ご住所'),
+    // 応募データに住所が無い場合は Indeed の位置情報から補う
+    address: firstNonEmpty([get('ご住所'), locationOf(get('【位置情報】'))]),
     mail: get('メールアドレス'),
     tel: get('電話番号'),
-    education: get('【学歴】'),
-    career: get('【職歴】'),
-    salesDetail: answer['営業の種類'],
-    years: answer['経験年数'],
-    years2: answer['経験年数_2'],
-    years3: answer['経験年数_3'],
-    retailType: answer['接客販売の種類'],
-    hasGoal: answer['個人目標の有無'],
-    goal: answer['目標概要（個人目標「有」を選択の方のみ）'],
+    education: schoolOf(get('【学歴】')),      // 学校名だけにする
+    career: careerText(get('【職歴】')),       // 読める形に整える
+    salesDetail: answer.salesType,
+    formBlock: answer.block,
     jobs: jobs,
     schools: schools,
   };
@@ -454,6 +460,61 @@ function ageOf(birth) {
   var age = now.getFullYear() - y;
   if (now.getMonth() + 1 < mo || (now.getMonth() + 1 === mo && now.getDate() < d)) age--;
   return age;
+}
+
+/**
+ * 応募日時の表記を揃える。
+ * 元データは「2026-07-09 16:03:16」「2026年8月17日10時30分」など
+ * ばらばらのため、まとめて yyyy/MM/dd HH:mm にする。
+ */
+function formatDateTime(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
+  }
+  const n = String(v || '').match(/\d+/g);
+  if (!n || n.length < 3 || n[0].length !== 4) return String(v || '');
+  const p = function (i) { return ('0' + (n[i] || '0')).slice(-2); };
+  return `${n[0]}/${p(1)}/${p(2)} ${p(3)}:${p(4)}`;
+}
+
+/** 生年月日は日付だけ。yyyy/MM/dd に揃える */
+function formatDate(v) {
+  if (Object.prototype.toString.call(v) === '[object Date]') {
+    return Utilities.formatDate(v, 'Asia/Tokyo', 'yyyy/MM/dd');
+  }
+  const n = String(v || '').match(/\d+/g);
+  if (!n || n.length < 3 || n[0].length !== 4) return String(v || '');
+  if (Number(n[1]) === 0 || Number(n[2]) === 0) return '';   // 0000-00-00 など
+  return `${n[0]}/${('0' + n[1]).slice(-2)}/${('0' + n[2]).slice(-2)}`;
+}
+
+/** Indeed の位置情報から住所を組み立てる */
+function locationOf(text) {
+  const kv = parseKeyValue(String(text || ''));
+  const city = kv['応募者の居住する市区町村'] || '';
+  const post = kv['postalcode'] || '';
+  if (!city && !post) return '';
+  return (post ? `〒${post} ` : '') + city;
+}
+
+/**
+ * Indeed の職歴を読める形にする。
+ * 「就業を開始した年度[1]: 2022」のような羅列のままでは読みづらいため、
+ * 「会社名（2022年5月～現在）／職種名」に組み直す。
+ */
+function careerText(text) {
+  const jobs = parseIndexed(String(text || ''));
+  if (jobs.length === 0) return String(text || '');
+  return jobs.map(function (j) {
+    const from = j['就業を開始した年度']
+      ? `${j['就業を開始した年度']}年${Number(j['就業を開始した月'] || 0) || ''}月`.replace('年月', '年')
+      : '';
+    const to = isTrue(j['この仕事がユーザーの現職か']) ? '現在'
+      : (j['就業を終了した年度'] ? `${j['就業を終了した年度']}年` : '');
+    const period = from || to ? `（${from}～${to}）` : '';
+    const role = j['職種名'] || '';
+    return `${j['会社名'] || ''}${period}${role ? '／' + role : ''}`;
+  }).filter(function (t) { return t.replace(/[（）／～]/g, '').trim() !== ''; }).join(' → ');
 }
 
 function dateOnly(v) {
