@@ -341,3 +341,218 @@ function createReadmeSheet() {
 
   Logger.log(`シート '${name}' を作りました`);
 }
+
+// ============================================================
+// 転記先だけで完結するテスト
+//   RPAシートには一切書かない。
+//   「RPAから転記された」「フォームに回答があった」状態を直接作り、
+//   加工と集約だけを検証する。
+// ============================================================
+
+/** テスト行の目印 */
+const TEST_COMPANY = 'テスト株式会社';
+
+/**
+ * 想定結果:
+ *   通過 … 田中一郎 / 森大輔 / 山田太一 / 佐々木綾   （4件）
+ *   除外 … 年齢3 / 氏名2 / 学生1 / 営業条件外2 / フォーム未回答1
+ */
+const TEST_ATS = [
+  { memo: '通過（男44・アウトバウンド）', name: '田中 一郎', kana: 'たなか いちろう',
+    gender: '男性', birth: '1982-03-15', tel: '09000000001', enrolled: 'false',
+    company: '株式会社サンプル商事', job: '法人営業', school: '早稲田大学', degree: '学士',
+    form: '新規営業（テレアポなどアウトバウンド営業）, 既存営業' },
+  { memo: '通過（男41・アウトバウンド）', name: '森 大輔', kana: 'もり だいすけ',
+    gender: '男性', birth: '1985-03-03', tel: '09000000002', enrolled: 'false',
+    company: '株式会社テスト工業', job: '新規開拓営業', school: '東京大学', degree: '修士',
+    form: '新規営業（テレアポなどアウトバウンド営業）' },
+  { memo: '除外（女54・年齢超過）', name: '佐藤 花子', kana: 'さとう はなこ',
+    gender: '女性', birth: '1972-06-20', tel: '09000000003', enrolled: 'false',
+    company: '株式会社テスト物産', job: '法人営業', school: '青山学院大学', degree: '学士',
+    form: '新規営業（テレアポなどアウトバウンド営業）' },
+  { memo: '除外（男48・年齢超過）', name: '鈴木 次郎', kana: 'すずき じろう',
+    gender: '男性', birth: '1978-01-10', tel: '09000000004', enrolled: 'false',
+    company: '株式会社ダミー工業', job: '営業', school: '法政大学', degree: '学士',
+    form: '新規営業（テレアポなどアウトバウンド営業）' },
+  { memo: '除外（氏名がカタカナ）', name: 'グエン バン', kana: 'ぐえん ばん',
+    gender: '男性', birth: '1995-05-05', tel: '09000000005', enrolled: 'false',
+    company: '株式会社サンプル貿易', job: '営業', school: '東京国際大学', degree: '学士',
+    form: '新規営業（テレアポなどアウトバウンド営業）' },
+  { memo: '除外（在学中）', name: '高橋 美咲', kana: 'たかはし みさき',
+    gender: '女性', birth: '2003-09-01', tel: '09000000006', enrolled: 'true',
+    company: '株式会社サンプルカフェ', job: 'アルバイト', school: '明治大学', degree: '学士',
+    form: '新規営業（テレアポなどアウトバウンド営業）' },
+  { memo: '除外（インバウンドのみ）', name: '渡辺 健二', kana: 'わたなべ けんじ',
+    gender: '男性', birth: '1990-01-01', tel: '09000000007', enrolled: 'false',
+    company: '株式会社サンプル通信', job: '反響営業', school: '立教大学', degree: '学士',
+    form: '新規営業（問い合わせ対応などインバウンド営業）, 既存営業' },
+  { memo: '除外（フォーム未回答）', name: '岡田 真理', kana: 'おかだ まり',
+    gender: '女性', birth: '1980-05-05', tel: '09000000008', enrolled: 'false',
+    company: '株式会社テスト商会', job: '営業', school: '上智大学', degree: '学士',
+    form: null },
+];
+
+const TEST_OBS = [
+  { memo: '通過（男41・正社員・営業あり）', name: '山田 太一（やまだ たいち）',
+    gender: '男性', birth: '1985年07月07日 (41歳)', status: '正社員', tel: '09000000011',
+    school: '慶應義塾大学',
+    career: '株式会社サンプル電機（2010年4月～2018年3月）／法人向けルート営業 → ' +
+            '株式会社テスト建設（2018年4月～2026年6月）／新規開拓営業と既存顧客対応' },
+  { memo: '通過（女44・セールス表記）', name: '佐々木 綾（ささき あや）',
+    gender: '女性', birth: '1982年02月20日 (44歳)', status: '契約社員', tel: '09000000012',
+    school: '立命館大学',
+    career: '株式会社サンプル商会（2012年4月～2026年7月）／インサイドセールスとして新規開拓' },
+  { memo: '除外（女52・年齢超過）', name: '中村 恵子（なかむら けいこ）',
+    gender: '女性', birth: '1974年02月14日 (52歳)', status: '無職・その他', tel: '09000000013',
+    school: '日本女子大学',
+    career: '株式会社ダミー保険（2000年4月～2015年9月）／個人向け保険営業' },
+  { memo: '除外（氏名がローマ字）', name: 'LEE MINHO',
+    gender: '男性', birth: '1990年04月01日 (36歳)', status: '正社員', tel: '09000000014',
+    school: 'ソウル大学',
+    career: '株式会社サンプル貿易（2015年4月～2026年5月）／海外向け法人営業' },
+  { memo: '除外（職歴に営業なし）', name: '伊藤 直美（いとう なおみ）',
+    gender: '女性', birth: '1988年08月08日 (38歳)', status: '主婦・主夫', tel: '09000000015',
+    school: '東京家政大学',
+    career: '株式会社ダミー食品（2011年4月～2020年3月）／総務および経理事務を担当' },
+];
+
+function testMail(i) { return `nakatsuka-m+x${String(i + 1).padStart(2, '0')}@blaze-ltd.com`; }
+
+/** テストデータを転記先に直接入れる */
+function createTestData() {
+  const book = SpreadsheetApp.openById(DST_ID);
+
+  // --- 応募情報（ATS）: RPAから転記された状態を作る ---
+  const atsRows = TEST_ATS.map(function (d, i) {
+    return {
+      'お仕事ID': `8800${String(i + 1).padStart(3, '0')}`,
+      '拠点名・管理NO': TEST_COMPANY,
+      '応募職種': '営業スタッフ（テスト）',
+      'お名前': d.name,
+      'フリガナ': d.kana,
+      '生年月日': '0000-00-00',             // 実データと同じく未入力
+      'ご住所': '',                          // 位置情報から補完されるかを見る
+      'メールアドレス': testMail(i),
+      '電話番号': d.tel,
+      '選考状況': '未対応',
+      '原稿パターン': 'A',
+      '応募受付日時': testDateTime(i),
+      '【名】': d.name.split(' ')[1] || '',
+      '【姓】': d.name.split(' ')[0],
+      '【email】': testMail(i),
+      '【位置情報】': '応募者の居住国: JP\n応募者の居住する市区町村: 東京都新宿区\npostalcode: 160-0022',
+      '【personalDetails】': `性別: ${d.gender}\n生年月日: ${d.birth}`,
+      '【職歴】': [
+        '就業を開始した月[1]: 04',
+        '就業を開始した年度[1]: 2015',
+        'この仕事がユーザーの現職か[1]: true',
+        `職種名[1]: ${d.job}`,
+        `会社名[1]: ${d.company}`,
+        '_total: 1',
+      ].join('\n'),
+      '【学歴】': [
+        `この教育機関で取得した学位[1]: ${d.degree}`,
+        `教育機関の名称[1]: ${d.school}`,
+        '卒業した年度[1]: 2008',
+        `この教育機関に在学中[1]: ${d.enrolled}`,
+        '_total: 1',
+      ].join('\n'),
+      '【スキル】': d.job,
+    };
+  });
+  appendByHeader(book, '応募情報（ATS）', atsRows);
+
+  // --- 応募情報（求人ボックス） ---
+  const obsRows = TEST_OBS.map(function (d, i) {
+    const career = d.career;
+    return {
+      '応募No': `A2-8800-${String(i + 1).padStart(4, '0')}`,
+      '応募日時': testDateTime(i),
+      '氏名': d.name,
+      '性別': d.gender,
+      '生年月日': d.birth,
+      '現在の職業': d.status,
+      '電話番号': d.tel,
+      'メールアドレス': testMail(i + TEST_ATS.length),
+      '住所': '東京都新宿区（テスト）',
+      '学校名': d.school,
+      '職歴': career,
+      '備考・PR': 'テストデータです',
+      '求人タイトル': '営業職（テスト）',
+      '求人ID': '8800-0001-0001',
+      '選考ステータス': '未対応',
+      '拠点名': TEST_COMPANY,
+      '職歴に営業を含む': /営業|セールス|Sales/.test(career) ? '○' : '',
+    };
+  });
+  appendByHeader(book, '応募情報（求人ボックス）', obsRows);
+
+  // --- Indeed: フォームに回答があった状態を作る ---
+  // 「経験年数」という同名の列が3つあるため、位置で組み立てる
+  const form = book.getSheetByName('Indeed');
+  const formRows = [];
+  TEST_ATS.forEach(function (d, i) {
+    if (d.form === null) return;   // 未回答の人は作らない
+    const row = new Array(form.getLastColumn()).fill('');
+    row[0] = testDateTime(i);                 // タイムスタンプ
+    row[1] = '同意します。';
+    row[2] = d.name;
+    row[3] = testMail(i);
+    row[4] = d.tel;
+    row[5] = '営業';
+    row[6] = d.form;                          // 営業の種類
+    row[7] = '3年以上';                        // 経験年数
+    row[9] = '有';                             // 個人目標の有無
+    row[10] = '新規獲得件数を月10件';           // 目標概要
+    if (row.length > 14) row[14] = d.birth.replace(/-/g, '/');   // 生年月日
+    formRows.push(row);
+  });
+  if (formRows.length) {
+    form.getRange(form.getLastRow() + 1, 1, formRows.length, formRows[0].length)
+      .setValues(formRows);
+    Logger.log(`[Indeed] フォーム回答 ${formRows.length} 件を追加しました`);
+  }
+
+  Logger.log('');
+  Logger.log(`テストデータを入れました。拠点名 '${TEST_COMPANY}' で判別できます`);
+  Logger.log('次に aggregateAll を実行してください');
+}
+
+/** テストデータを消す。RPAシートには触らない */
+function removeTestData() {
+  const book = SpreadsheetApp.openById(DST_ID);
+  deleteRowsWhere(book, '応募情報（ATS）', '拠点名・管理NO', TEST_COMPANY);
+  deleteRowsWhere(book, '応募情報（求人ボックス）', '拠点名', TEST_COMPANY);
+
+  // フォーム回答とまとめは、テスト用のメールアドレスで判別する
+  deleteRowsMatching(book, 'Indeed', 'メールアドレス', /\+x\d+@blaze-ltd\.com$/);
+  deleteRowsMatching(book, '応募まとめ', 'メールアドレス', /\+x\d+@blaze-ltd\.com$/);
+  Logger.log('有効応募まとめに入った分は、必要なら手で消してください');
+}
+
+function deleteRowsMatching(book, sheetName, headerName, pattern) {
+  const sheet = book.getSheetByName(sheetName);
+  if (!sheet) { Logger.log(`[${sheetName}] 見つかりません`); return; }
+  const lastRow = sheet.getLastRow();
+  const lastCol = sheet.getLastColumn();
+  if (lastRow < 2) return;
+
+  const header = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0]
+    .map(function (h) { return String(h).trim(); });
+  const col = header.indexOf(headerName);
+  if (col === -1) { Logger.log(`[${sheetName}] 列 '${headerName}' がありません`); return; }
+
+  const values = sheet.getRange(2, col + 1, lastRow - 1, 1).getDisplayValues();
+  var deleted = 0;
+  for (var i = values.length - 1; i >= 0; i--) {
+    if (pattern.test(String(values[i][0]).trim())) { sheet.deleteRow(i + 2); deleted++; }
+  }
+  Logger.log(`[${sheetName}] ${deleted} 行を削除しました`);
+}
+
+function testDateTime(i) {
+  const d = new Date();
+  d.setDate(d.getDate() - (i + 1));
+  d.setHours(9 + i, 15, 0, 0);
+  return Utilities.formatDate(d, 'Asia/Tokyo', 'yyyy/MM/dd HH:mm:ss');
+}

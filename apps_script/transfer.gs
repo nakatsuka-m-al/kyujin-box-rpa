@@ -559,3 +559,39 @@ function sendTestMail() {
   ));
   Logger.log(`${to} に確認用メールを送りました（差出人表示: ${MAIL_SENDER_NAME}）`);
 }
+
+// ============================================================
+// 一括実行
+// ============================================================
+
+/**
+ * 転記 → メール送信 → 集約 を続けて行う。
+ *
+ * 別々のトリガーにすると、転記された行にメールが送られるまで
+ * 最大で間隔の2倍かかる。1つにまとめれば転記直後に送れる。
+ *
+ * トリガー設定:
+ *   runAll を「分ベースのタイマー」10分おき（これ1つでよい）
+ */
+function runAll() {
+  const steps = [
+    ['転記', transferAll],
+    ['メール送信', sendFormRequests],
+    ['集約', aggregateAll],
+  ];
+
+  const failures = [];
+  steps.forEach(function (step) {
+    try {
+      Logger.log(`===== ${step[0]} =====`);
+      step[1]();
+    } catch (e) {
+      // 1つ失敗しても後続は動かす。次回の実行でやり直される。
+      Logger.log(`[${step[0]}] 失敗: ${e}`);
+      failures.push(`${step[0]}: ${e}`);
+    }
+  });
+
+  // 例外を投げないとGoogleからの障害通知が飛ばない
+  if (failures.length) throw new Error(failures.join(' / '));
+}
