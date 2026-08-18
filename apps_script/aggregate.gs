@@ -486,15 +486,28 @@ function extractKana(name) {
   return m ? m[1].trim() : '';
 }
 
-/** 生年月日から年齢。「1990年04月28日 (36歳)」のような括弧書きがあればそれを使う */
+/**
+ * 生年月日から年齢。
+ * 「1990年04月28日 (36歳)」のような括弧書きがあればそれを使う。
+ *
+ * フォームの日付欄は Date として渡ってくる。文字列にすると
+ * 「Fri Mar 15 1982 00:00:00 GMT+0900」となり月日が拾えないため、
+ * Date は先に取り出しておく。
+ */
 function ageOf(birth) {
+  if (Object.prototype.toString.call(birth) === '[object Date]') {
+    return yearsSince(birth.getFullYear(), birth.getMonth() + 1, birth.getDate());
+  }
   const s = String(birth || '');
   const paren = s.match(/[(（]\s*(\d{1,3})\s*歳/);
   if (paren) return Number(paren[1]);
 
   const m = s.match(/(\d{4})\D+(\d{1,2})\D+(\d{1,2})/);
   if (!m) return '';
-  const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+  return yearsSince(Number(m[1]), Number(m[2]), Number(m[3]));
+}
+
+function yearsSince(y, mo, d) {
   if (!y || !mo || !d) return '';        // 0000-00-00 のような未入力
   const now = new Date();
   var age = now.getFullYear() - y;
