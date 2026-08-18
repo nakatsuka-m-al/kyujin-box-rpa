@@ -291,3 +291,49 @@ function checkMapping() {
     }
   });
 }
+
+/** 「有効応募まとめ」など、まだ確認していないシートの構成を見る（書き込まない） */
+function inspectDestination() {
+  const book = SpreadsheetApp.openById(DST_ID);
+  Logger.log(`タブ一覧: ${book.getSheets().map(function (s) { return s.getName(); }).join(' / ')}`);
+
+  ['有効応募まとめ', '応募まとめ', 'Indeed'].forEach(function (name) {
+    const sheet = book.getSheetByName(name);
+    Logger.log('');
+    if (!sheet) {
+      Logger.log(`--- ${name}: 見つかりません ---`);
+      return;
+    }
+    const lastRow = sheet.getLastRow();
+    const lastCol = sheet.getLastColumn();
+    Logger.log(`--- ${name}: ${lastRow}行 x ${lastCol}列 ---`);
+    if (lastRow === 0 || lastCol === 0) return;
+
+    sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0].forEach(function (h, i) {
+      if (h !== '') Logger.log(`  ${columnLetter(i + 1)}: ${h}`);
+    });
+
+    const n = Math.min(2, lastRow - 1);
+    if (n <= 0) { Logger.log('  （データ行なし）'); return; }
+    sheet.getRange(2, 1, n, lastCol).getDisplayValues().forEach(function (row, r) {
+      const filled = [];
+      row.forEach(function (v, i) {
+        if (v !== '') {
+          const s = String(v).replace(/\n/g, '⏎');
+          filled.push(`${columnLetter(i + 1)}=${s.length > 40 ? s.slice(0, 40) + '…' : s}`);
+        }
+      });
+      Logger.log(`  ${r + 2}行目: ${filled.join('  ')}`);
+    });
+  });
+}
+
+function columnLetter(n) {
+  var s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+}
