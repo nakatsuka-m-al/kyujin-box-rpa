@@ -408,13 +408,26 @@ const MAX_MAILS_PER_RUN = 20;
 /** 送信済みを記録する列。無ければ自動で作る */
 const MAIL_SENT_HEADER = 'メール送信日時';
 
-const MAIL_SUBJECT = 'ご応募ありがとうございます｜ご経験についてのアンケートのお願い';
+/**
+ * 差出人の表示名。
+ * メールアドレス自体はこのスクリプトを実行しているアカウントのものになる。
+ * 受信者には「ミイダス株式会社 採用担当 <実行者のアドレス>」と見える。
+ * 本当にミイダス社のアドレスから送るには、Gmailの「名前」設定で
+ * そのアドレスを送信元として登録し、先方で認証を通す必要がある。
+ */
+const MAIL_SENDER_NAME = 'ミイダス株式会社 採用担当';
 
-/** {name} は応募者のお名前に置き換わる */
+/** 返信先。空にすると差出人アドレスに返信される */
+const MAIL_REPLY_TO = '';
+
+const MAIL_SUBJECT = 'ご応募ありがとうございます｜ご経験に関するアンケートのお願い';
+
+/** {name} は応募者のお名前、{form} はフォームのURLに置き換わる */
 const MAIL_BODY = [
   '{name} 様',
   '',
-  'この度はご応募いただき、誠にありがとうございます。',
+  'この度は、ミイダス株式会社の求人にご応募いただき、',
+  '誠にありがとうございます。',
   '',
   '選考を進めさせていただくにあたり、ご経験について',
   '簡単なアンケートへのご協力をお願いしております。',
@@ -422,10 +435,11 @@ const MAIL_BODY = [
   '▼回答フォーム（1〜2分で完了します）',
   '{form}',
   '',
-  'お手数をおかけしますが、ご確認のほどよろしくお願いいたします。',
+  'ご回答いただいた内容をもとに、担当者よりあらためてご連絡いたします。',
+  'お手数をおかけしますが、よろしくお願いいたします。',
   '',
   '------------------------------',
-  '株式会社BLAZE',
+  'ミイダス株式会社 採用担当',
   '------------------------------',
 ].join('\n');
 
@@ -479,13 +493,9 @@ function sendFormRequests() {
         .replace('{name}', name)
         .replace('{form}', FORM_URL);
 
-      MailApp.sendEmail({
-        to: to,
-        subject: MAIL_SUBJECT,
-        body: MAIL_TEST_TO
-          ? `※テスト送信です。本来の宛先: ${address}\n\n${body}`
-          : body,
-      });
+      MailApp.sendEmail(buildMailOptions(to, MAIL_TEST_TO
+        ? `※テスト送信です。本来の宛先: ${address}\n\n${body}`
+        : body));
 
       // 送信できたものだけ記録する。失敗した行は次回やり直せる。
       sheet.getRange(rowNo, sentCol).setValue(new Date());
@@ -519,14 +529,24 @@ function isValidAddress(s) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
 }
 
+function buildMailOptions(to, body) {
+  const options = {
+    to: to,
+    subject: MAIL_SUBJECT,
+    body: body,
+    name: MAIL_SENDER_NAME,
+  };
+  if (MAIL_REPLY_TO) options.replyTo = MAIL_REPLY_TO;
+  return options;
+}
+
 /** 文面の確認用。1通だけ自分宛に送る（シートは更新しない） */
 function sendTestMail() {
   const to = MAIL_TEST_TO;
   if (!to) throw new Error('MAIL_TEST_TO が空です。確認用の宛先を入れてください');
-  MailApp.sendEmail({
-    to: to,
-    subject: MAIL_SUBJECT,
-    body: MAIL_BODY.replace('{name}', '山田 太郎').replace('{form}', FORM_URL),
-  });
-  Logger.log(`${to} に確認用メールを送りました`);
+  MailApp.sendEmail(buildMailOptions(
+    to,
+    MAIL_BODY.replace('{name}', '山田 太郎').replace('{form}', FORM_URL)
+  ));
+  Logger.log(`${to} に確認用メールを送りました（差出人表示: ${MAIL_SENDER_NAME}）`);
 }
