@@ -28,6 +28,13 @@ const SALES_WORDS = ['営業', 'セールス', 'Sales'];
 const REQUIRED_SALES_TYPE = 'アウトバウンド';
 
 /**
+ * 応募まとめのA列がこの値のときだけ、有効応募まとめへ移す。
+ * 「保留」など別の記入があっても移さないようにするため、
+ * 「空でなければ」ではなく値そのものを見る。
+ */
+const VALID_MARK = '有効';
+
+/**
  * 求人ボックス側で、営業に該当する職歴をつなぐ区切り。
  * 各職歴が「会社名（期間）／内容」という形で ／ を含むため、
  * ／ でつなぐと区切りが判別できなくなる。
@@ -288,7 +295,7 @@ function promoteToValidSummary() {
   const rows = [];
   summary.rows.forEach(function (row) {
     const get = function (n) { return valueOf(summary, row, n); };
-    if (String(get('有効') || '').trim() === '') return;   // 手動で有効にしたものだけ
+    if (String(get('有効') || '').trim() !== VALID_MARK) return;   // 「有効」だけを移す
 
     const k = validKey(get('応募日時'), get('お名前'));
     if (!k || existing[k]) return;
