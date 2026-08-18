@@ -27,6 +27,13 @@ const SALES_WORDS = ['営業', 'セールス', 'Sales'];
  */
 const REQUIRED_SALES_TYPE = 'アウトバウンド';
 
+/**
+ * 求人ボックス側で、営業に該当する職歴をつなぐ区切り。
+ * 各職歴が「会社名（期間）／内容」という形で ／ を含むため、
+ * ／ でつなぐと区切りが判別できなくなる。
+ */
+const CAREER_SEPARATOR = ' → ';
+
 /** 学位の言い換え。左が Indeed の表記、右がシートの表記 */
 const DEGREE_MAP = {
   '博士': '院卒', '修士': '院卒', '大学院': '院卒',
@@ -234,7 +241,7 @@ function kbPerson(get, salesList) {
     education: get('学校名'),
     career: get('職歴'),
     // 営業に該当する職歴だけを並べる
-    salesDetail: salesList.join('／'),
+    salesDetail: salesList.join(CAREER_SEPARATOR),
     currentJob: get('現在の職業'),
     careerEntries: careerEntries(String(get('職歴') || '')),
   };
