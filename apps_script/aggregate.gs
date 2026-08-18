@@ -80,7 +80,7 @@ function aggregateToSummary() {
   });
 
   const rows = [];
-  const reasons = { 回答なし: 0, 営業種別: 0, 氏名: 0, 年齢: 0, 既出: 0 };
+  const reasons = { 回答なし: 0, 営業種別: 0, 氏名: 0, 年齢: 0, 学生: 0, 既出: 0 };
 
   ats.rows.forEach(function (row) {
     const get = function (n) { return valueOf(ats, row, n); };
@@ -122,7 +122,8 @@ function aggregateToSummary() {
   Logger.log(
     `[応募まとめ] 新規 ${rows.length} 件 / ` +
     `既出 ${reasons.既出} / フォーム未回答 ${reasons.回答なし} / ` +
-    `営業条件外 ${reasons.営業種別} / 氏名 ${reasons.氏名} / 年齢 ${reasons.年齢}`
+    `営業条件外 ${reasons.営業種別} / 氏名 ${reasons.氏名} / ` +
+    `年齢 ${reasons.年齢} / 学生 ${reasons.学生}`
   );
 
   if (rows.length === 0) return;
@@ -238,7 +239,20 @@ function judge(p) {
   if (!hasKanji(p.name)) return '氏名';
   const limit = AGE_LIMIT[String(p.gender || '').trim()];
   if (limit !== undefined && p.age !== '' && p.age > limit) return '年齢';
+  if (isStudent(p)) return '学生';   // 中途採用のため在学中は対象外
   return 'ok';
+}
+
+/**
+ * 在学中かどうか。
+ * 求人ボックスは「現在の職業」、ATSは学歴の「在学中」で判定する。
+ */
+function isStudent(p) {
+  const job = String(p.currentJob || '');
+  if (/大学生|大学院生|専門学校生|学生/.test(job)) return true;
+  return (p.schools || []).some(function (s) {
+    return isTrue(s['この教育機関に在学中']);
+  });
 }
 
 // ===== 第4段階: 有効応募まとめ =====
