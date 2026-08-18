@@ -20,7 +20,7 @@ const DST_ID = '108O_PWeXENQe1Lbz64q9lYzXsGHPBlOCb0poDVxc_-o';
 
 /** 見出しだけ見たいシート／中身も見たいシート */
 const SRC_SHEETS = ['ALL_ATSOBS', 'OBS'];
-const DST_SHEETS = ['応募情報（ATS）', '応募情報（求人ボックス）', '応募まとめ', 'Indeed'];
+const DST_SHEETS = ['応募情報（ATS）', '応募情報（求人ボックス）', '応募まとめ', '有効応募まとめ', 'Indeed'];
 
 /** 個人情報がログに出るため、値はこの長さで切る */
 const MAX_LEN = 40;
