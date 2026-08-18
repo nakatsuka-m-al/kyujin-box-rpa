@@ -386,3 +386,147 @@ function dumpKyujinboxCareerSample() {
     Logger.log('');
   }
 }
+
+// ============================================================
+// 第2段階: フォーム回答依頼メール
+// ============================================================
+
+/** 回答してもらうフォーム */
+const FORM_URL =
+  'https://docs.google.com/forms/d/e/1FAIpQLScu3tZJsVMcftXT61pYZlKF3R0l4ID3GRNIZbHXlFBf9Ab50g/viewform';
+
+/**
+ * 動作確認中はここに自分のアドレスを入れる。
+ * 応募者には届かず、すべてこのアドレスに送られる。
+ * 本番に切り替えるときは空文字にする。
+ */
+const MAIL_TEST_TO = 'nakatsuka-m@blaze-ltd.com';
+
+/** 1回の実行で送る上限。まとめて大量に送ってしまう事故を防ぐ */
+const MAX_MAILS_PER_RUN = 20;
+
+/** 送信済みを記録する列。無ければ自動で作る */
+const MAIL_SENT_HEADER = 'メール送信日時';
+
+const MAIL_SUBJECT = 'ご応募ありがとうございます｜ご経験についてのアンケートのお願い';
+
+/** {name} は応募者のお名前に置き換わる */
+const MAIL_BODY = [
+  '{name} 様',
+  '',
+  'この度はご応募いただき、誠にありがとうございます。',
+  '',
+  '選考を進めさせていただくにあたり、ご経験について',
+  '簡単なアンケートへのご協力をお願いしております。',
+  '',
+  '▼回答フォーム（1〜2分で完了します）',
+  '{form}',
+  '',
+  'お手数をおかけしますが、ご確認のほどよろしくお願いいたします。',
+  '',
+  '------------------------------',
+  '株式会社BLAZE',
+  '------------------------------',
+].join('\n');
+
+/**
+ * 応募情報（ATS）の未送信の行にフォーム依頼メールを送る。
+ *
+ * 送信済みかどうかはシート上の列で管理する。
+ * スクリプト内部で持つと、消えたときに二重送信するため。
+ */
+function sendFormRequests() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    Logger.log('前回の処理が実行中のためスキップ');
+    return;
+  }
+
+  try {
+    const book = SpreadsheetApp.openById(DST_ID);
+    const sheet = book.getSheetByName('応募情報（ATS）');
+    if (!sheet) throw new Error('シート 応募情報（ATS）が見つかりません');
+
+    const sentCol = ensureColumn(sheet, MAIL_SENT_HEADER);
+    const table = readSheet(book, '応募情報（ATS）');
+
+    const mailIndex = table.index['メールアドレス'];
+    const nameIndex = table.index['お名前'];
+    if (mailIndex === undefined) throw new Error('列 メールアドレス が見つかりません');
+
+    var sent = 0;
+    var skipped = 0;
+
+    for (var i = 0; i < table.rows.length; i++) {
+      if (sent >= MAX_MAILS_PER_RUN) {
+        Logger.log(`上限 ${MAX_MAILS_PER_RUN} 件に達したため、残りは次回に回します`);
+        break;
+      }
+
+      const row = table.rows[i];
+      const rowNo = i + 2;
+
+      const already = String(row[sentCol - 1] || '').trim();
+      if (already !== '') { skipped++; continue; }
+
+      const address = String(row[mailIndex] || '').trim();
+      if (!isValidAddress(address)) continue;
+
+      const name = String(row[nameIndex] || '').trim() || 'ご応募者';
+      const to = MAIL_TEST_TO || address;
+
+      const body = MAIL_BODY
+        .replace('{name}', name)
+        .replace('{form}', FORM_URL);
+
+      MailApp.sendEmail({
+        to: to,
+        subject: MAIL_SUBJECT,
+        body: MAIL_TEST_TO
+          ? `※テスト送信です。本来の宛先: ${address}\n\n${body}`
+          : body,
+      });
+
+      // 送信できたものだけ記録する。失敗した行は次回やり直せる。
+      sheet.getRange(rowNo, sentCol).setValue(new Date());
+      sent++;
+      Logger.log(`送信: ${name} → ${to}${MAIL_TEST_TO ? `（本来は ${address}）` : ''}`);
+    }
+
+    Logger.log(`送信 ${sent} 件 / 送信済み ${skipped} 件`);
+    if (MAIL_TEST_TO) {
+      Logger.log(`テストモードです。すべて ${MAIL_TEST_TO} に送信しました`);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 見出しが無ければ最終列の右に作り、その列番号を返す */
+function ensureColumn(sheet, header) {
+  const lastCol = sheet.getLastColumn();
+  const names = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+  for (var i = 0; i < names.length; i++) {
+    if (String(names[i]).trim() === header) return i + 1;
+  }
+  const col = lastCol + 1;
+  sheet.getRange(1, col).setValue(header);
+  Logger.log(`列 '${header}' を ${columnLetter(col)} 列に作りました`);
+  return col;
+}
+
+function isValidAddress(s) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+/** 文面の確認用。1通だけ自分宛に送る（シートは更新しない） */
+function sendTestMail() {
+  const to = MAIL_TEST_TO;
+  if (!to) throw new Error('MAIL_TEST_TO が空です。確認用の宛先を入れてください');
+  MailApp.sendEmail({
+    to: to,
+    subject: MAIL_SUBJECT,
+    body: MAIL_BODY.replace('{name}', '山田 太郎').replace('{form}', FORM_URL),
+  });
+  Logger.log(`${to} に確認用メールを送りました`);
+}
