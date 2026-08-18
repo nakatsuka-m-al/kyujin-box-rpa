@@ -35,6 +35,15 @@ const REQUIRED_SALES_TYPE = 'アウトバウンド';
 const VALID_MARK = '有効';
 
 /**
+ * 職種の分類。分類マスタを受領していないため、
+ * 確実に言える「営業職」だけを入れ、それ以外は空にする。
+ * マスタを受け取ったら、ここに対応表を足す。
+ */
+const JOB_CATEGORY_RULES = [
+  { match: /営業|セールス|Sales/i, major: '営業職', minor: '営業職' },
+];
+
+/**
  * 求人ボックス側で、営業に該当する職歴をつなぐ区切り。
  * 各職歴が「会社名（期間）／内容」という形で ／ を含むため、
  * ／ でつなぐと区切りが判別できなくなる。
@@ -330,11 +339,45 @@ function validRow(valid, get, src) {
     '現職／離職中': employmentStatus(src),
     '現職（前職）社名': latestCompany(src.career || get('職歴')),
     '最終学歴': degreeOf(src.education || ''),
+    '現職（前職）職種\n※大分類': jobCategory(src, 'major'),
+    '現職（前職）職種\n※中分類': jobCategory(src, 'minor'),
     '大学名／学校名': get('学歴'),          // 応募まとめの時点で学校名だけになっている
   };
   return valid.header.map(function (name) {
     return map[name] === undefined ? '' : map[name];
   });
+}
+
+/**
+ * 職種の分類。直近の職種名から判定する。
+ * 当てはまるものが無ければ空にする（推測で埋めない）。
+ */
+function jobCategory(src, level) {
+  const text = latestJobTitle(src);
+  if (!text) return '';
+  for (var i = 0; i < JOB_CATEGORY_RULES.length; i++) {
+    if (JOB_CATEGORY_RULES[i].match.test(text)) return JOB_CATEGORY_RULES[i][level];
+  }
+  return '';
+}
+
+/** 直近の職種名。Indeedは職種名、求人ボックスは職歴の業務内容から拾う */
+function latestJobTitle(src) {
+  const jobs = parseIndexed(String((src && src.career) || ''));
+  if (jobs.length > 0) {
+    const current = jobs.filter(function (j) {
+      return isTrue(j['この仕事がユーザーの現職か']);
+    });
+    const target = current.length ? current : jobs;
+    return target[0]['職種名'] || '';
+  }
+
+  const entries = careerEntries(String((src && src.career) || ''));
+  if (entries.length === 0) return '';
+  const sorted = entries.slice().sort(function (a, b) { return b.endValue - a.endValue; });
+  // 「会社名（期間）／業務内容」の業務内容側を見る
+  const parts = sorted[0].text.split('／');
+  return parts.length > 1 ? parts.slice(1).join('／') : sorted[0].text;
 }
 
 /**
