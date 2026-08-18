@@ -24,13 +24,22 @@ const DST_ID = '108O_PWeXENQe1Lbz64q9lYzXsGHPBlOCb0poDVxc_-o';
 
 /**
  * 対象クライアントの絞り込み。
- * ALL_ATSOBS は BP列（暗号）、OBS は S列（暗号）で判定する。
- * 空にすると絞り込みなし（＝全社が転記先に入るので注意）。
  *
- *   '7A5EDD2B8C' … 株式会社バイク王＆カンパニー（動作確認用）
- *   '2F3146F147' … 本番の対象クライアント。データが入ったらこちらに変更する
+ * 【ダミー検証中】拠点名で絞り込む
+ *   ATS_FILTER_HEADER = '拠点名・管理NO'
+ *   OBS_FILTER_HEADER = '拠点名'
+ *   FILTER_CODE       = 'ダミー人材株式会社'
+ *
+ * 【本番】暗号で絞り込む
+ *   ATS_FILTER_HEADER = '暗号'
+ *   OBS_FILTER_HEADER = '暗号'
+ *   FILTER_CODE       = '2F3146F147'
+ *
+ * FILTER_CODE を空にすると絞り込みなし（＝全社が転記先に入るので注意）。
  */
-const FILTER_CODE = '7A5EDD2B8C';
+const ATS_FILTER_HEADER = '拠点名・管理NO';
+const OBS_FILTER_HEADER = '拠点名';
+const FILTER_CODE = 'ダミー人材株式会社';
 
 /** true の間は書き込まず、何が起きるかをログに出すだけ */
 const DRY_RUN = true;
@@ -93,7 +102,7 @@ function transferAts() {
     label: 'ATS',
     srcSheet: 'ALL_ATSOBS',
     dstSheet: '応募情報（ATS）',
-    filterHeader: '暗号',
+    filterHeader: ATS_FILTER_HEADER,
     alias: ATS_ALIAS,
     // 同じ人が別の求人・別の日に応募することがあるため3つ組で一意にする
     keyHeaders: ['お仕事ID', 'お名前', '応募受付日時'],
@@ -106,7 +115,7 @@ function transferKyujinbox() {
     label: '求人ボックス',
     srcSheet: 'OBS',
     dstSheet: '応募情報（求人ボックス）',
-    filterHeader: '暗号',
+    filterHeader: OBS_FILTER_HEADER,
     alias: {},
     keyHeaders: ['応募No'],
     // 転記元に無い列は、こちらで値を作る
