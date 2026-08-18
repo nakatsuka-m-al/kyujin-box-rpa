@@ -191,7 +191,7 @@ function atsPerson(get, answer) {
 
   // 生年月日はフォームの回答を最優先。応募データ側は 0000-00-00 が多い
   const birth = firstNonEmpty([
-    answer['生年月日'], details['生年月日'], get('生年月日'),
+    answer.birth, details['生年月日'], get('生年月日'),
   ]);
 
   return {
@@ -268,6 +268,10 @@ function promoteToValidSummary() {
   const summary = readSheet(book, '応募まとめ');
   const valid = readSheet(book, '有効応募まとめ');
 
+  // 応募まとめの学歴・職歴は読みやすく整形済みで、
+  // 学位や在学中の情報が残っていない。判定には元の応募情報を引き直す。
+  const origin = buildOriginIndex(book);
+
   const existing = {};
   valid.rows.forEach(function (row) {
     const k = validKey(valueOf(valid, row, '応募日'), valueOf(valid, row, '氏名'));
@@ -283,7 +287,8 @@ function promoteToValidSummary() {
     if (!k || existing[k]) return;
     existing[k] = true;
 
-    rows.push(validRow(valid, get));
+    const src = firstMatch(origin, contactKeys(get('メールアドレス'), get('電話番号'))) || {};
+    rows.push(validRow(valid, get, src));
   });
 
   Logger.log(`[有効応募まとめ] 新規 ${rows.length} 件`);
@@ -300,10 +305,7 @@ function promoteToValidSummary() {
   Logger.log(`[有効応募まとめ] ${rows.length} 行を追加しました`);
 }
 
-function validRow(valid, get) {
-  const education = String(get('学歴') || '');
-  const career = String(get('職歴') || '');
-
+function validRow(valid, get, src) {
   const map = {
     '応募日': dateOnly(get('応募日時')),
     '応募経路': '求人媒体',
@@ -311,28 +313,66 @@ function validRow(valid, get) {
     '氏名': get('お名前'),
     '年齢': get('年齢'),
     '性別': get('性別'),
-    '現職／離職中': employmentStatus(career, education),
-    '現職（前職）社名': latestCompany(career),
-    '最終学歴': degreeOf(education),
-    '大学名／学校名': schoolOf(education),
+    '現職／離職中': employmentStatus(src),
+    '現職（前職）社名': latestCompany(src.career || get('職歴')),
+    '最終学歴': degreeOf(src.education || ''),
+    '大学名／学校名': get('学歴'),          // 応募まとめの時点で学校名だけになっている
   };
   return valid.header.map(function (name) {
     return map[name] === undefined ? '' : map[name];
   });
 }
 
+/**
+ * メール／電話 → 元の応募情報。
+ * 現職か・在学中か・学位は、整形前のテキストにしか残っていない。
+ */
+function buildOriginIndex(book) {
+  const index = {};
+
+  const ats = readSheet(book, '応募情報（ATS）');
+  ats.rows.forEach(function (row) {
+    const rec = {
+      education: valueOf(ats, row, '【学歴】'),
+      career: valueOf(ats, row, '【職歴】'),
+      currentJob: '',
+    };
+    contactKeys(valueOf(ats, row, 'メールアドレス'), valueOf(ats, row, '電話番号'))
+      .forEach(function (k) { index[k] = rec; });
+  });
+
+  const kb = readSheet(book, '応募情報（求人ボックス）');
+  kb.rows.forEach(function (row) {
+    const rec = {
+      education: '',                                  // 求人ボックスは学校名のみで学位が無い
+      career: valueOf(kb, row, '職歴'),
+      currentJob: valueOf(kb, row, '現在の職業'),
+    };
+    contactKeys(valueOf(kb, row, 'メールアドレス'), valueOf(kb, row, '電話番号'))
+      .forEach(function (k) { index[k] = rec; });
+  });
+
+  return index;
+}
+
 // ===== 判定・抽出 =====
 
 /**
  * 現職／離職中／学生。
- * Indeed形式なら「この仕事がユーザーの現職か」「在学中」を見る。
- * 求人ボックスは職歴に情報が無いため、この関数では判定できない。
+ * 求人ボックスは「現在の職業」、ATSはIndeedの「現職か」「在学中」で判定する。
  */
-function employmentStatus(career, education) {
-  const schools = parseIndexed(education);
+function employmentStatus(src) {
+  const job = String((src && src.currentJob) || '');
+  if (job) {
+    if (/大学生|大学院生|専門学校生|学生/.test(job)) return '学生';
+    if (/無職|主婦|主夫/.test(job)) return '離職中';
+    return '現職中';
+  }
+
+  const schools = parseIndexed(String((src && src.education) || ''));
   if (schools.some(function (s) { return isTrue(s['この教育機関に在学中']); })) return '学生';
 
-  const jobs = parseIndexed(career);
+  const jobs = parseIndexed(String((src && src.career) || ''));
   if (jobs.length > 0) {
     return jobs.some(function (j) { return isTrue(j['この仕事がユーザーの現職か']); })
       ? '現職中' : '離職中';
