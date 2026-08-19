@@ -303,7 +303,8 @@ function atsPerson(get, answer) {
     education: schoolOf(get('【学歴】')),      // 学校名だけにする
     career: careerText(get('【職歴】')),       // 読める形に整える
     // 営業の回答が無ければ接客販売の回答を入れる（どちらか一方しか答えない）
-    experienceType: firstNonEmpty([answer.salesType, answer.retailType]),
+    experienceType: withKind(answer.experience,
+      firstNonEmpty([answer.salesType, answer.retailType])),
     retailType: answer.retailType,
     hasGoal: answer.hasGoal,
     goal: answer.goal,
@@ -332,10 +333,33 @@ function kbPerson(get, salesList) {
     education: get('学校名'),
     career: get('職歴'),
     // 営業に該当する職歴だけを並べる
-    experienceType: salesList.join(CAREER_SEPARATOR),
+    experienceType: withKind(kbKind(salesList), salesList.join(CAREER_SEPARATOR)),
     currentJob: get('現在の職業'),
     careerEntries: careerEntries(String(get('職歴') || '')),
   };
+}
+
+/**
+ * 経験の種類の頭に、フォームの「ご経験」を【】で付ける。
+ * 例: 【営業】新規開拓（テレアポなどアウトバウンドの営業やコールセンター業務）
+ *
+ * 求人ボックスはフォームを通らないため、職歴から判定した種別を入れる。
+ */
+function withKind(kind, detail) {
+  const k = String(kind || '').trim();
+  const d = String(detail || '').trim();
+  if (k === '') return d;
+  return `【${k}】${d}`;
+}
+
+/**
+ * 求人ボックスの職歴が、営業とコールセンターのどちらにあたるか。
+ * フォームの「ご経験」と同じ言葉に揃える。
+ */
+function kbKind(titles) {
+  const text = (titles || []).join(' ');
+  if (text === '') return '';
+  return /コールセンター|テレアポ|テレマ/i.test(text) ? 'コールセンター' : '営業';
 }
 
 /** 絞り込み。通れば 'ok'、外れたら理由を返す */
