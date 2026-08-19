@@ -53,7 +53,12 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
         run: |
           pip install -r requirements.txt
-          playwright install --with-deps chromium
+          # --with-deps を付けない。
+          # 実行環境にはChromiumが必要とするライブラリが最初から入っており、
+          # 追加で取りに行くのはフォント21MBだけ。
+          # そのダウンロードが数分固まることがあり、取り込みが止まる原因になっていた。
+          # 画面を読むだけでフォントは要らないので、ブラウザ本体だけ入れる。
+          playwright install chromium
 
       - name: 実績レポート同期
         env:
