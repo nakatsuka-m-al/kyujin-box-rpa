@@ -24,6 +24,12 @@ const AGE_LIMIT = { '男性': 45, '女性': 50 };
 const SALES_WORDS = ['営業', 'セールス', 'Sales', 'コールセンター', 'テレアポ'];
 
 /**
+ * 語は当たるが営業ではない職種。
+ * 「営業事務」は SALES_WORDS の「営業」に当たってしまうため、先に外す。
+ */
+const NOT_SALES = /営業事務|営業アシスタント|営業サポート/;
+
+/**
  * ATS側の合格条件。フォームの回答で次のどちらかを満たせば対象。
  *
  *   ① ご経験＝営業・コールセンター
@@ -59,11 +65,14 @@ const VALID_MARK = '有効';
  * マスタを受け取ったら、ここに対応表を足す。
  *
  * 上から順に見て、最初に当たったものを採用する。
- * コールセンターを営業より先に置くのは、
+ * インサイドセールスとコールセンターを営業より先に置くのは、
  * 「コールセンターで新規営業」のように両方の語を含む書き方があるため。
+ * NOT_SALES に当たる職種（営業事務など）は、どれにも分類しない。
  */
 const JOB_CATEGORY_RULES = [
-  { match: /コールセンター|テレアポ|テレマ|インサイドセールス/i,
+  { match: /インサイドセールス/i,
+    major: '営業職', minor: 'インサイドセールス' },
+  { match: /コールセンター|テレアポ|テレマ/i,
     major: '営業職', minor: 'コールセンター' },
   { match: /営業|セールス|Sales/i,
     major: '営業職', minor: '営業職' },
@@ -464,6 +473,7 @@ function allValues(table, row, headerName) {
 function jobCategory(src, level) {
   const text = latestJobTitle(src);
   if (!text) return '';
+  if (NOT_SALES.test(text)) return '';
   for (var i = 0; i < JOB_CATEGORY_RULES.length; i++) {
     if (JOB_CATEGORY_RULES[i].match.test(text)) return JOB_CATEGORY_RULES[i][level];
   }
@@ -585,6 +595,7 @@ function schoolOf(education) {
 /** 文字列が営業の経験を示しているか */
 function looksLikeSales(text) {
   const s = String(text || '');
+  if (NOT_SALES.test(s)) return false;
   return SALES_WORDS.some(function (w) { return s.indexOf(w) !== -1; });
 }
 
