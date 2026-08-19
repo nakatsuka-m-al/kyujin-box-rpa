@@ -24,12 +24,20 @@ const AGE_LIMIT = { '男性': 45, '女性': 50 };
 const SALES_WORDS = ['営業', 'セールス', 'Sales', 'コールセンター', 'テレアポ'];
 
 /**
- * ATS側で有効とみなす営業の種類。
- * 「インバウンドではなく自ら新規顧客をとりにいくこと」という条件に合わせ、
- * 新規開拓（アウトバウンド）を選んだ回答だけを対象にする。
- * どれか1つでも含まれていれば対象とみなす。
+ * ATS側の合格条件。フォームの回答で次のどちらかを満たせば対象。
+ *
+ *   ① ご経験＝営業・コールセンター
+ *      かつ「営業・コールセンターの種類」で新規開拓（アウトバウンド）を選択
+ *      ※インバウンドのみ・既存営業のみは対象外
+ *
+ *   ② ご経験＝販売・接客
+ *      かつ「個人目標の有無」が 有
+ *
+ * 選択肢の文言が変わっても拾えるよう、複数の語で判定する。
  */
 const REQUIRED_SALES_TYPES = ['アウトバウンド', '新規開拓'];
+const RETAIL_EXPERIENCE_WORDS = ['販売', '接客'];
+const HAS_GOAL_VALUE = '有';
 
 /**
  * フォームの「営業の種類」にあたる列を探すための語。
@@ -127,7 +135,10 @@ function aggregateToSummary() {
       mail: valueOf(form, row, 'メールアドレス'),
       tel: valueOf(form, row, '電話番号'),
       birth: valueOf(form, row, '生年月日'),
+      experience: valueOf(form, row, 'ご経験'),
       salesType: row[formAnchor],
+      hasGoal: valueOf(form, row, '個人目標の有無'),
+      retailType: valueOf(form, row, '接客販売の種類'),
       block: row.slice(formAnchor),   // 営業の種類 以降をまとめて持つ
     };
     contactKeys(rec.mail, rec.tel).forEach(function (k) {
@@ -146,11 +157,7 @@ function aggregateToSummary() {
     const answer = firstMatch(answers, keys);
     if (!answer) { reasons.回答なし++; return; }
 
-    const salesType = String(answer.salesType || '');
-    const matched = REQUIRED_SALES_TYPES.some(function (w) {
-      return salesType.indexOf(w) !== -1;
-    });
-    if (!matched) { reasons.営業種別++; return; }
+    if (!qualifiesByForm(answer)) { reasons.営業種別++; return; }
 
     const person = atsPerson(get, answer);
     const judged = judge(person);
@@ -237,6 +244,27 @@ function summaryRow(summary, p) {
     }
     return front[i];
   });
+}
+
+/**
+ * フォームの回答が合格条件を満たすか。
+ *   営業・コールセンター → 新規開拓（アウトバウンド）を選んでいること
+ *   販売・接客           → 個人目標が「有」であること
+ */
+function qualifiesByForm(answer) {
+  const salesType = String(answer.salesType || '');
+  const isOutbound = REQUIRED_SALES_TYPES.some(function (w) {
+    return salesType.indexOf(w) !== -1;
+  });
+  if (isOutbound) return true;
+
+  const experience = String(answer.experience || '');
+  const isRetail = RETAIL_EXPERIENCE_WORDS.some(function (w) {
+    return experience.indexOf(w) !== -1;
+  });
+  if (isRetail && String(answer.hasGoal || '').trim() === HAS_GOAL_VALUE) return true;
+
+  return false;
 }
 
 /** ATS側の1人分を整える */
