@@ -582,8 +582,23 @@ function looksLikeSales(text) {
 /** 職歴を ' → ' で区切り、営業に該当するものだけ返す */
 function salesEntries(career) {
   return String(career || '').split('→')
-    .map(function (s) { return s.trim(); })
+    .map(jobTitleOf)
     .filter(function (s) { return s !== '' && looksLikeSales(s); });
+}
+
+/**
+ * 「会社名（2012年10月～2026年3月）／法人向けルート営業」から
+ * 職種名の「法人向けルート営業」だけを取り出す。
+ *
+ * ／が無い書き方のときは、会社名と期間だけを削って残りを返す。
+ * 社名に「営業」が入っていても営業経験と誤判定しないよう、
+ * 営業かどうかの判定もこの職種名に対して行う。
+ */
+function jobTitleOf(entry) {
+  const text = String(entry || '').trim();
+  const slash = text.indexOf('／');
+  if (slash !== -1) return text.slice(slash + 1).trim();
+  return text.replace(/^.+?[（(][^）)]*[）)]/, '').trim() || text;
 }
 
 /** 「会社名（2012年10月～2026年3月）／内容」を分解する */
