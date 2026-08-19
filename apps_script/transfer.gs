@@ -23,26 +23,26 @@ const SRC_ID = '1H-AhBNG0mZcKdlEgeqHlHtKM_wvX53Hhlt0GJdkfdyo';
 const DST_ID = '108O_PWeXENQe1Lbz64q9lYzXsGHPBlOCb0poDVxc_-o';
 
 /**
- * 対象クライアントの絞り込み。
- *
- * 【ダミー検証中】拠点名で絞り込む
- *   ATS_FILTER_HEADER = '拠点名・管理NO'
- *   OBS_FILTER_HEADER = '拠点名'
- *   FILTER_CODE       = 'ダミー人材株式会社'
+ * 対象クライアントの絞り込み。いまは本番設定。
  *
  * 【本番】暗号で絞り込む
  *   ATS_FILTER_HEADER = '暗号'
  *   OBS_FILTER_HEADER = '暗号'
  *   FILTER_CODE       = '2F3146F147'
  *
+ * 【デモデータで検証する場合】拠点名で絞り込む
+ *   ATS_FILTER_HEADER = '拠点名・管理NO'
+ *   OBS_FILTER_HEADER = '拠点名'
+ *   FILTER_CODE       = 'テスト株式会社'
+ *
  * FILTER_CODE を空にすると絞り込みなし（＝全社が転記先に入るので注意）。
  */
-const ATS_FILTER_HEADER = '拠点名・管理NO';
-const OBS_FILTER_HEADER = '拠点名';
-const FILTER_CODE = 'ダミー人材株式会社';
+const ATS_FILTER_HEADER = '暗号';
+const OBS_FILTER_HEADER = '暗号';
+const FILTER_CODE = '2F3146F147';
 
 /** true の間は書き込まず、何が起きるかをログに出すだけ */
-const DRY_RUN = true;
+const DRY_RUN = false;
 
 // ===== 転記の定義 =====
 
