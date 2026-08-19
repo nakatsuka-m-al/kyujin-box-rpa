@@ -139,7 +139,9 @@ function aggregateToSummary() {
       salesType: row[formAnchor],
       hasGoal: valueOf(form, row, '個人目標の有無'),
       retailType: valueOf(form, row, '接客販売の種類'),
-      block: row.slice(formAnchor),   // 営業の種類 以降をまとめて持つ
+      goal: valueOf(form, row, '目標概要（個人目標「有」を選択の方のみ）'),
+      // 「経験年数」は分岐ごとに3列あるが、回答されるのは1つだけ
+      years: firstNonEmpty(allValues(form, row, '経験年数')),
     };
     contactKeys(rec.mail, rec.tel).forEach(function (k) {
       answers[k] = rec;   // 同じ人が複数回答した場合は後の回答で上書き
@@ -205,11 +207,12 @@ function aggregateToSummary() {
 }
 
 /**
- * 応募まとめの1行を組み立てる。A列「有効」は手動なので空のまま。
- * M列以降はフォーム回答をそのままの並びで写す。
+ * 応募まとめの1行を組み立てる。
+ * 列は見出しの名前で対応させるので、列を足しても消しても追従する。
+ * A列「有効」とメモ列は手入力のため触らない。
  */
 function summaryRow(summary, p) {
-  const map = {
+  return pickByHeader(summary.header, {
     '応募日時': formatDateTime(p.appliedAt),
     'お名前': p.name,
     'フリガナ': p.kana,
@@ -221,50 +224,15 @@ function summaryRow(summary, p) {
     '電話番号': p.tel,
     '学歴': p.education,
     '職歴': p.career,
-  };
-
-  // 見出しの改行や空白を無視して探す
-  const norm = function (v) { return String(v || '').replace(/[\s　]/g, ''); };
-  const anchorName = norm('（Indeed）営業の種類／（求人ボックス）経歴');
-  var anchor = -1;
-  summary.header.forEach(function (h, i) {
-    if (anchor === -1 && norm(h) === anchorName) anchor = i;
+    // 求人ボックスは営業に該当する職歴、Indeedは回答された種類が入る
+    '経験の種類': p.experienceType,
+    '個人目標の有無': p.hasGoal,
+    '目標概要': p.goal,
+    '経験年数': p.years,
+    '接客販売の種類': p.retailType,
+    // 旧レイアウトが残っていた場合の受け皿
+    '（Indeed）営業の種類／（求人ボックス）経歴': p.experienceType,
   });
-
-  const front = pickByHeader(summary.header, map);
-
-  return summary.header.map(function (name, i) {
-    if (anchor !== -1 && i >= anchor) {
-      if (p.formBlock) {
-        const v = p.formBlock[i - anchor];
-        return v === undefined ? '' : v;
-      }
-      // 求人ボックスはフォームが無い。M列に営業に該当する職歴を入れる
-      return i === anchor ? p.salesDetail : '';
-    }
-    return front[i];
-  });
-}
-
-/**
- * フォームの回答が合格条件を満たすか。
- *   営業・コールセンター → 新規開拓（アウトバウンド）を選んでいること
- *   販売・接客           → 個人目標が「有」であること
- */
-function qualifiesByForm(answer) {
-  const salesType = String(answer.salesType || '');
-  const isOutbound = REQUIRED_SALES_TYPES.some(function (w) {
-    return salesType.indexOf(w) !== -1;
-  });
-  if (isOutbound) return true;
-
-  const experience = String(answer.experience || '');
-  const isRetail = RETAIL_EXPERIENCE_WORDS.some(function (w) {
-    return experience.indexOf(w) !== -1;
-  });
-  if (isRetail && String(answer.hasGoal || '').trim() === HAS_GOAL_VALUE) return true;
-
-  return false;
 }
 
 /** ATS側の1人分を整える */
@@ -292,8 +260,12 @@ function atsPerson(get, answer) {
     tel: get('電話番号'),
     education: schoolOf(get('【学歴】')),      // 学校名だけにする
     career: careerText(get('【職歴】')),       // 読める形に整える
-    salesDetail: answer.salesType,
-    formBlock: answer.block,
+    // 営業の回答が無ければ接客販売の回答を入れる（どちらか一方しか答えない）
+    experienceType: firstNonEmpty([answer.salesType, answer.retailType]),
+    retailType: answer.retailType,
+    hasGoal: answer.hasGoal,
+    goal: answer.goal,
+    years: answer.years,
     jobs: jobs,
     schools: schools,
   };
@@ -318,7 +290,7 @@ function kbPerson(get, salesList) {
     education: get('学校名'),
     career: get('職歴'),
     // 営業に該当する職歴だけを並べる
-    salesDetail: salesList.join(CAREER_SEPARATOR),
+    experienceType: salesList.join(CAREER_SEPARATOR),
     currentJob: get('現在の職業'),
     careerEntries: careerEntries(String(get('職歴') || '')),
   };
@@ -410,16 +382,46 @@ function validRow(valid, get, src) {
 
 /**
  * 見出しの名前で値を並べる。
- * 見出しに改行・空白・全角空白が混ざっていても一致させる。
+ *
+ * - 改行・空白・全角空白は無視する
+ * - 見出しに補足が付いていても一致させる
+ *   例:「個人目標の有無（販売・接客の方のみ）」← 「個人目標の有無」
+ * - 同じ見出しが複数あるときは最初の1つにだけ入れる
+ *   例: フォーム由来の「経験年数」が並んでいる場合
  */
 function pickByHeader(header, map) {
   const norm = function (s) { return String(s || '').replace(/[\s　]/g, ''); };
-  const table = {};
-  Object.keys(map).forEach(function (k) { table[norm(k)] = map[k]; });
-  return header.map(function (name) {
-    const v = table[norm(name)];
-    return v === undefined ? '' : v;
+
+  const keys = Object.keys(map).map(function (k) {
+    return { key: k, norm: norm(k), value: map[k] };
   });
+  // 長い名前から先に照合する（短い名前が先に当たるのを防ぐ）
+  keys.sort(function (a, b) { return b.norm.length - a.norm.length; });
+
+  const used = {};
+  return header.map(function (name) {
+    const h = norm(name);
+    if (h === '') return '';
+
+    for (var i = 0; i < keys.length; i++) {
+      const k = keys[i];
+      if (used[k.key]) continue;
+      if (h === k.norm || h.indexOf(k.norm) === 0) {
+        used[k.key] = true;
+        return k.value === undefined ? '' : k.value;
+      }
+    }
+    return '';
+  });
+}
+
+/** 同じ見出しが複数ある列の値をすべて返す */
+function allValues(table, row, headerName) {
+  const out = [];
+  table.header.forEach(function (h, i) {
+    if (String(h).trim() === headerName) out.push(row[i]);
+  });
+  return out;
 }
 
 /**
