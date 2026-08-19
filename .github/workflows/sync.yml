@@ -36,7 +36,20 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      # ブラウザを毎回ダウンロードすると、その分だけ止まる余地が増える
+      - name: Playwright ブラウザのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
       - name: 依存インストール
+        # 固まったときにジョブ全体の制限時間を食い潰さないよう、ここで区切る。
+        # 正常時は長くても3分程度なので8分あれば足りる。
+        timeout-minutes: 8
+        # aptが応答待ちで止まらないようにする
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
           pip install -r requirements.txt
           playwright install --with-deps chromium
