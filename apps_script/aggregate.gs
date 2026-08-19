@@ -207,6 +207,30 @@ function aggregateToSummary() {
 }
 
 /**
+ * フォーム回答が営業条件を満たすか。
+ *
+ *   ① 営業・コールセンター経験があり、新規開拓（アウトバウンド）を選んでいる
+ *   ② 販売・接客経験があり、個人目標が「有」
+ *
+ * どちらにも当てはまらなければ対象外。
+ */
+function qualifiesByForm(answer) {
+  const salesType = String(answer.salesType || '');
+  const isOutbound = REQUIRED_SALES_TYPES.some(function (w) {
+    return salesType.indexOf(w) !== -1;
+  });
+  if (isOutbound) return true;
+
+  const experience = String(answer.experience || '');
+  const isRetail = RETAIL_EXPERIENCE_WORDS.some(function (w) {
+    return experience.indexOf(w) !== -1;
+  });
+  if (isRetail && String(answer.hasGoal || '').trim() === HAS_GOAL_VALUE) return true;
+
+  return false;
+}
+
+/**
  * 応募まとめの1行を組み立てる。
  * 列は見出しの名前で対応させるので、列を足しても消しても追従する。
  * A列「有効」とメモ列は手入力のため触らない。
