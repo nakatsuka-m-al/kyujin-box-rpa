@@ -97,6 +97,28 @@ const DEGREE_MAP = {
   '中学校': '中卒',
 };
 
+/**
+ * 学校名から最終学歴を推測する。
+ * 求人ボックスは学位のデータが無く、学校名しか来ないため。
+ *
+ * 上から順に見て最初に当たったものを使う。
+ * 「短期大学」を「大学」より先に置かないと短大が大卒になる。
+ * 同じ理由で「大学院」「高等専門学校」も先に置く。
+ */
+const SCHOOL_DEGREE_RULES = [
+  { match: '大学院', degree: '院卒' },
+  { match: '短期大学', degree: '短大卒' },
+  { match: '短大', degree: '短大卒' },
+  { match: '高等専門学校', degree: '高専卒' },
+  { match: '高専', degree: '高専卒' },
+  { match: '大学', degree: '大卒' },
+  { match: '専門学校', degree: '専門卒' },
+  { match: '専修学校', degree: '専門卒' },
+  { match: '高等学校', degree: '高卒' },
+  { match: '高校', degree: '高卒' },
+  { match: '中学校', degree: '中卒' },
+];
+
 // ===== エントリポイント =====
 
 function aggregateAll() {
@@ -603,11 +625,25 @@ function latestCompany(career) {
 /** 最終学歴。Indeed の学位表記をシートの言い方に直す */
 function degreeOf(education) {
   const schools = parseIndexed(education);
-  if (schools.length === 0) return '';   // 求人ボックスは学校名しか無いため空
-  const raw = String(schools[0]['この教育機関で取得した学位'] || '').trim();
-  if (!raw) return '';
-  const hit = Object.keys(DEGREE_MAP).filter(function (k) { return raw.indexOf(k) !== -1; });
-  return hit.length ? DEGREE_MAP[hit[0]] : raw;
+  const raw = schools.length
+    ? String(schools[0]['この教育機関で取得した学位'] || '').trim()
+    : '';
+  if (raw) {
+    const hit = Object.keys(DEGREE_MAP).filter(function (k) { return raw.indexOf(k) !== -1; });
+    return hit.length ? DEGREE_MAP[hit[0]] : raw;
+  }
+  // 求人ボックスは学位が無いので、学校名から推測する
+  return degreeFromSchool(schoolOf(education));
+}
+
+/** 学校名から最終学歴を推測する。判断できなければ空 */
+function degreeFromSchool(name) {
+  const s = String(name || '');
+  if (s === '') return '';
+  for (var i = 0; i < SCHOOL_DEGREE_RULES.length; i++) {
+    if (s.indexOf(SCHOOL_DEGREE_RULES[i].match) !== -1) return SCHOOL_DEGREE_RULES[i].degree;
+  }
+  return '';
 }
 
 function schoolOf(education) {
