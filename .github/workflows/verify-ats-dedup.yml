@@ -27,9 +27,23 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - run: |
+      - name: Playwright ブラウザのキャッシュ
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('requirements.txt') }}
+
+      - name: 依存インストール
+        # 固まったときにジョブ全体の制限時間を食い潰さないよう、ここで区切る
+        timeout-minutes: 8
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
           pip install -r requirements.txt
-          playwright install --with-deps chromium
+          # --with-deps を付けない。運用側のワークフローと揃える。
+          # ライブラリは実行環境に入っており、追加で取るのはフォントだけで、
+          # そのダウンロードが数分固まることがある。
+          playwright install chromium
 
       - name: 検証実行
         env:
