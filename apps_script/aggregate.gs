@@ -17,15 +17,26 @@
 /** 年齢の上限 */
 const AGE_LIMIT = { '男性': 45, '女性': 50 };
 
-/** 求人ボックス側で営業経験とみなす語 */
-const SALES_WORDS = ['営業', 'セールス', 'Sales'];
+/**
+ * 求人ボックス側で営業経験とみなす語。
+ * コールセンターも対象になったため含める。
+ */
+const SALES_WORDS = ['営業', 'セールス', 'Sales', 'コールセンター', 'テレアポ'];
 
 /**
  * ATS側で有効とみなす営業の種類。
- * 議事録の「インバウンドではなく自ら新規顧客をとりにいくこと」に合わせ、
- * アウトバウンドを含む回答だけを対象にする。
+ * 「インバウンドではなく自ら新規顧客をとりにいくこと」という条件に合わせ、
+ * 新規開拓（アウトバウンド）を選んだ回答だけを対象にする。
+ * どれか1つでも含まれていれば対象とみなす。
  */
-const REQUIRED_SALES_TYPE = 'アウトバウンド';
+const REQUIRED_SALES_TYPES = ['アウトバウンド', '新規開拓'];
+
+/**
+ * フォームの「営業の種類」にあたる列を探すための語。
+ * 質問名が変わっても追従できるよう、すべてを含む見出しを探す。
+ * 例: 「営業の種類」「営業・コールセンターの種類」のどちらにも一致する。
+ */
+const FORM_ANCHOR_WORDS = ['営業', '種類'];
 
 /**
  * 応募まとめのA列がこの値のときだけ、有効応募まとめへ移す。
@@ -40,7 +51,7 @@ const VALID_MARK = '有効';
  * マスタを受け取ったら、ここに対応表を足す。
  */
 const JOB_CATEGORY_RULES = [
-  { match: /営業|セールス|Sales/i, major: '営業職', minor: '営業職' },
+  { match: /営業|セールス|Sales|コールセンター|テレアポ/i, major: '営業職', minor: '営業職' },
 ];
 
 /**
@@ -95,8 +106,20 @@ function aggregateToSummary() {
   // フォーム回答をメール／電話で引けるようにする。
   // 「経験年数」という同名の列が3つあるため、名前では引けない。
   // 「営業の種類」以降を位置で切り出し、応募まとめの同じ並びに写す。
-  const formAnchor = form.header.indexOf('営業の種類');
-  if (formAnchor === -1) throw new Error('Indeedシートに 営業の種類 列がありません');
+  var formAnchor = -1;
+  form.header.forEach(function (h, i) {
+    const t = String(h || '');
+    if (formAnchor === -1 && FORM_ANCHOR_WORDS.every(function (w) {
+      return t.indexOf(w) !== -1;
+    })) formAnchor = i;
+  });
+  if (formAnchor === -1) {
+    throw new Error(
+      `Indeedシートに ${FORM_ANCHOR_WORDS.join('・')} を含む列がありません。` +
+      `実際の見出し: ${form.header.join(' / ')}`
+    );
+  }
+  Logger.log(`フォームの起点列: ${form.header[formAnchor]}`);
 
   const answers = {};
   form.rows.forEach(function (row) {
@@ -123,9 +146,11 @@ function aggregateToSummary() {
     const answer = firstMatch(answers, keys);
     if (!answer) { reasons.回答なし++; return; }
 
-    if (String(answer.salesType || '').indexOf(REQUIRED_SALES_TYPE) === -1) {
-      reasons.営業種別++; return;
-    }
+    const salesType = String(answer.salesType || '');
+    const matched = REQUIRED_SALES_TYPES.some(function (w) {
+      return salesType.indexOf(w) !== -1;
+    });
+    if (!matched) { reasons.営業種別++; return; }
 
     const person = atsPerson(get, answer);
     const judged = judge(person);
@@ -494,13 +519,17 @@ function schoolOf(education) {
   return String(education || '').trim();   // 求人ボックスは学校名がそのまま入っている
 }
 
+/** 文字列が営業の経験を示しているか */
+function looksLikeSales(text) {
+  const s = String(text || '');
+  return SALES_WORDS.some(function (w) { return s.indexOf(w) !== -1; });
+}
+
 /** 職歴を ' → ' で区切り、営業に該当するものだけ返す */
 function salesEntries(career) {
   return String(career || '').split('→')
     .map(function (s) { return s.trim(); })
-    .filter(function (s) {
-      return s !== '' && SALES_WORDS.some(function (w) { return s.indexOf(w) !== -1; });
-    });
+    .filter(function (s) { return s !== '' && looksLikeSales(s); });
 }
 
 /** 「会社名（2012年10月～2026年3月）／内容」を分解する */

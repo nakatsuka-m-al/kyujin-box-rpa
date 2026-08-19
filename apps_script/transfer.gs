@@ -120,8 +120,9 @@ function transferKyujinbox() {
     keyHeaders: ['応募No'],
     // 転記元に無い列は、こちらで値を作る
     computed: {
+      // 判定語は aggregate.gs の SALES_WORDS と共通
       '職歴に営業を含む': function (get) {
-        return String(get('職歴') || '').indexOf('営業') !== -1 ? '○' : '';
+        return looksLikeSales(get('職歴')) ? '○' : '';
       },
     },
   });
