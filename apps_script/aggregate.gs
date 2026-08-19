@@ -566,7 +566,8 @@ function buildOriginIndex(book) {
   const kb = readSheet(book, '応募情報（求人ボックス）');
   kb.rows.forEach(function (row) {
     const rec = {
-      education: '',                                  // 求人ボックスは学校名のみで学位が無い
+      // 学位は無く学校名だけ。最終学歴はこの名前から推測する
+      education: valueOf(kb, row, '学校名'),
       career: valueOf(kb, row, '職歴'),
       currentJob: valueOf(kb, row, '現在の職業'),
     };
