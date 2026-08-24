@@ -18,10 +18,35 @@
 const AGE_LIMIT = { '男性': 45, '女性': 50 };
 
 /**
- * 求人ボックス側で営業経験とみなす語。
- * コールセンターも対象になったため含める。
+ * 求人ボックス側で営業経験とみなす語（営業寄り）。
+ * 職歴の文中にこの語が含まれていれば該当とする（部分一致）。
  */
-const SALES_WORDS = ['営業', 'セールス', 'Sales', 'コールセンター', 'テレアポ'];
+const SALES_WORDS = ['営業', 'セールス', 'Sales'];
+
+/**
+ * 同じくコールセンター寄りとみなす語。
+ *
+ * 求人ボックスの職歴は自由記述で、同じ仕事でも書き方が大きく違う。
+ * 「コールセンター」と一言も書かずに業務内容だけ並べる人が多いため、
+ * 現場で使われる言い回しを広めに入れている。
+ *
+ * 入れていない語と、その理由:
+ *   SV     … 「CSV作成」に含まれてしまう。スーパーバイザーで拾う
+ *   サポート … 「営業サポート」「事務サポート」まで拾ってしまう
+ *   CS     … 2文字で誤って当たりやすい
+ *
+ * インサイドセールスはここに入れない。営業扱いにするため、
+ * SALES_WORDS の「セールス」で拾う。
+ */
+const CALL_CENTER_WORDS = [
+  'コールセンター', 'テレアポ', 'テレマ',
+  'オペレーター', 'オペレータ', 'スーパーバイザー',
+  'テクニカルサポート', 'カスタマーサポート', 'カスタマーサクセス',
+  'ヘルプデスク', 'サポートデスク',
+  '問い合わせ対応', 'お問い合わせ対応', '問合せ対応',
+  '受発信', '架電', '発信業務', '受電', '入電',
+  'クレーム対応', 'エスカレーション',
+];
 
 /**
  * 語は当たるが営業ではない職種。
@@ -72,7 +97,7 @@ const VALID_MARK = '有効';
 const JOB_CATEGORY_RULES = [
   { match: /インサイドセールス/i,
     major: '営業職', minor: 'インサイドセールス' },
-  { match: /コールセンター|テレアポ|テレマ/i,
+  { match: new RegExp(CALL_CENTER_WORDS.join('|'), 'i'),
     major: '営業職', minor: 'コールセンター' },
   { match: /営業|セールス|Sales/i,
     major: '営業職', minor: '営業職' },
@@ -381,7 +406,8 @@ function withKind(kind, detail) {
 function kbKind(titles) {
   const text = (titles || []).join(' ');
   if (text === '') return '';
-  return /コールセンター|テレアポ|テレマ/i.test(text) ? 'コールセンター' : '営業';
+  const isCall = CALL_CENTER_WORDS.some(function (w) { return text.indexOf(w) !== -1; });
+  return isCall ? 'コールセンター' : '営業';
 }
 
 /** 絞り込み。通れば 'ok'、外れたら理由を返す */
@@ -657,7 +683,9 @@ function schoolOf(education) {
 function looksLikeSales(text) {
   const s = String(text || '');
   if (NOT_SALES.test(s)) return false;
-  return SALES_WORDS.some(function (w) { return s.indexOf(w) !== -1; });
+  return SALES_WORDS.concat(CALL_CENTER_WORDS).some(function (w) {
+    return s.indexOf(w) !== -1;
+  });
 }
 
 /** 職歴を ' → ' で区切り、営業に該当するものだけ返す */
