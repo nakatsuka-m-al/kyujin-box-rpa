@@ -41,7 +41,7 @@ const SALES_WORDS = ['営業', 'セールス', 'Sales'];
 const CALL_CENTER_WORDS = [
   'コールセンター', 'テレアポ', 'テレマ',
   'オペレーター', 'オペレータ', 'スーパーバイザー',
-  'テクニカルサポート', 'カスタマーサポート', 'カスタマーサクセス',
+  'テクニカルサポート', 'カスタマーサポート', 'カスタマーサービス', 'カスタマーサクセス',
   'ヘルプデスク', 'サポートデスク',
   '問い合わせ対応', 'お問い合わせ対応', '問合せ対応',
   '受発信', '架電', '発信業務', '受電', '入電',
@@ -50,9 +50,14 @@ const CALL_CENTER_WORDS = [
 
 /**
  * 語は当たるが営業ではない職種。
- * 「営業事務」は SALES_WORDS の「営業」に当たってしまうため、先に外す。
+ * 「営業事務」は SALES_WORDS の「営業」に当たってしまうため、
+ * 判定の前にこの語だけを文章から取り除く。
+ *
+ * 「除外する」ではなく「取り除く」のが要点。
+ * 除外にすると「営業事務、経理、総務。前職ではテレアポ」のように
+ * 他の経験も書いてある人まで丸ごと落ちてしまう。
  */
-const NOT_SALES = /営業事務|営業アシスタント|営業サポート/;
+const NOT_SALES = /営業事務|営業アシスタント|営業サポート/g;
 
 /**
  * ATS側の合格条件。フォームの回答で次のどちらかを満たせば対象。
@@ -549,9 +554,8 @@ function allValues(table, row, headerName) {
  * 当てはまるものが無ければ空にする（推測で埋めない）。
  */
 function jobCategory(src, level) {
-  const text = latestJobTitle(src);
+  const text = withoutNotSales(latestJobTitle(src));
   if (!text) return '';
-  if (NOT_SALES.test(text)) return '';
   for (var i = 0; i < JOB_CATEGORY_RULES.length; i++) {
     if (JOB_CATEGORY_RULES[i].match.test(text)) return JOB_CATEGORY_RULES[i][level];
   }
@@ -687,11 +691,17 @@ function schoolOf(education) {
 
 /** 文字列が営業の経験を示しているか */
 function looksLikeSales(text) {
-  const s = String(text || '');
-  if (NOT_SALES.test(s)) return false;
+  const s = withoutNotSales(text);
   return SALES_WORDS.concat(CALL_CENTER_WORDS).some(function (w) {
     return s.indexOf(w) !== -1;
   });
+}
+
+/** 「営業事務」など、営業と誤認させる語だけを取り除く */
+function withoutNotSales(text) {
+  // 正規表現に g を付けているため、状態が残らないよう毎回リセットする
+  NOT_SALES.lastIndex = 0;
+  return String(text || '').replace(NOT_SALES, '');
 }
 
 /** 職歴を ' → ' で区切り、営業に該当するものだけ返す */
