@@ -241,9 +241,12 @@ function aggregateToSummary() {
 
     const career = String(get('職歴') || '');
     const sales = salesEntries(career);
-    if (sales.length === 0) { reasons.営業種別++; return; }
+    // 職歴に書いていなくても、備考・PRに営業やコールセンターの記載があれば拾う
+    const note = String(get('備考・PR') || '');
+    const noteHit = sales.length === 0 && looksLikeSales(note);
+    if (sales.length === 0 && !noteHit) { reasons.営業種別++; return; }
 
-    const person = kbPerson(get, sales);
+    const person = kbPerson(get, sales, noteHit ? note : '');
     const judged = judge(person);
     if (judged !== 'ok') { reasons[judged]++; return; }
 
@@ -362,7 +365,7 @@ function atsPerson(get, answer) {
 }
 
 /** 求人ボックス側の1人分を整える */
-function kbPerson(get, salesList) {
+function kbPerson(get, salesList, noteText) {
   const rawName = String(get('氏名') || '').trim();
   const birthCell = String(get('生年月日') || '');
 
@@ -379,8 +382,11 @@ function kbPerson(get, salesList) {
     tel: get('電話番号'),
     education: get('学校名'),
     career: get('職歴'),
-    // 営業に該当する職歴だけを並べる
-    experienceType: withKind(kbKind(salesList), salesList.join(CAREER_SEPARATOR)),
+    // 営業に該当する職歴だけを並べる。
+    // 職歴では拾えず備考・PRで拾った場合は、そちらを出典付きで入れる。
+    experienceType: salesList.length
+      ? withKind(kbKind(salesList), salesList.join(CAREER_SEPARATOR))
+      : withKind(kbKind([noteText]), `備考・PRより: ${String(noteText || '').trim()}`),
     currentJob: get('現在の職業'),
     careerEntries: careerEntries(String(get('職歴') || '')),
   };
