@@ -39,7 +39,7 @@ MASTER_PASSWORD = os.environ["KYUJIN_MASTER_PASSWORD"]
 SUB_ACCOUNTS: list[dict] = json.loads(os.environ.get("KYUJIN_SUB_ACCOUNTS", "[]"))
 
 # 高速レーンと定期実行でキャッシュを分けるため環境変数で切り替える
-SEEN_IDS_PATH = Path(os.environ.get("SEEN_IDS_PATH", "seen_applicant_ids.json"))
+SEEN_IDS_PATH = Path(notify._env("SEEN_IDS_PATH", "seen_applicant_ids.json"))
 
 # 指定するとそのサブアカウントだけを取得する（メールトリガー用）。
 # 値はアカウント一覧のリンク末尾と同じ形式。例: "6617-5385"

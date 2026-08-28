@@ -25,11 +25,19 @@ logger = logging.getLogger(__name__)
 
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 
-API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
+def _env(name: str, default: str = "") -> str:
+    """
+    環境変数を読む。
+
+    GitHub Actions は未設定の secrets / vars を「空文字」として渡すため、
+    os.environ.get の第2引数（既定値）が効かない。空なら既定値を使う。
+    """
+    return os.environ.get(name, "").strip() or default
+
+
+API_KEY = _env("RESEND_API_KEY")
 NOTIFY_TO = [a.strip() for a in os.environ.get("NOTIFY_TO", "").split(",") if a.strip()]
-NOTIFY_FROM = os.environ.get(
-    "NOTIFY_FROM", "Oubo Pay通知 <oubopay@blaze-ltd.com>"
-).strip()
+NOTIFY_FROM = _env("NOTIFY_FROM", "Oubo Pay通知 <oubopay@blaze-ltd.com>")
 
 # 深刻度
 URGENT = "至急"      # データが失われている、または止まっている

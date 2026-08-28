@@ -25,11 +25,22 @@ import requests
 
 logger = logging.getLogger(__name__)
 
+
+def _env(name: str, default: str = "") -> str:
+    """
+    環境変数を読む。
+
+    GitHub Actions は未設定の secrets / vars を「空文字」として渡すため、
+    os.environ.get の第2引数（既定値）が効かない。空なら既定値を使う。
+    """
+    return os.environ.get(name, "").strip() or default
+
+
 BASE = "https://toroo.jp/api/toroo_sync"
 TIMEOUT = 30
 
-CLIENT_ID = os.environ.get("TOROO_CLIENT_ID", "").strip()
-API_SECRET = os.environ.get("TOROO_API_SECRET", "").strip()
+CLIENT_ID = _env("TOROO_CLIENT_ID")
+API_SECRET = _env("TOROO_API_SECRET")
 
 ACCOUNT_IDS = {
     a.strip()
@@ -44,10 +55,10 @@ ACCOUNT_IDS = {
 #
 # 直接投稿の有料枠からの応募なので既定は94。
 # 代理店別に集計したい場合は128に変える。環境変数で上書きできる。
-RECRUITMENT_ROUTE_ID = int(os.environ.get("TOROO_ROUTE_ID", "94"))
+RECRUITMENT_ROUTE_ID = int(_env("TOROO_ROUTE_ID", "94"))
 
 # トークンは最終アクセスから24時間有効。実行のたびに取り直す必要はない
-TOKEN_CACHE = Path(os.environ.get("TOROO_TOKEN_CACHE", "toroo_token.json"))
+TOKEN_CACHE = Path(_env("TOROO_TOKEN_CACHE", "toroo_token.json"))
 
 
 class TorooError(Exception):

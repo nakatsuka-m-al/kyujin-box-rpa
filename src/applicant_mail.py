@@ -19,10 +19,10 @@ import notify
 logger = logging.getLogger(__name__)
 
 MAIL_TO = [a.strip() for a in os.environ.get("APPLICANT_MAIL_TO", "").split(",") if a.strip()]
-MAIL_FROM = os.environ.get(
+MAIL_FROM = notify._env(
     "APPLICANT_MAIL_FROM", "Oubo Pay応募通知 <oubopay@blaze-ltd.com>"
-).strip()
-CLIENT_NAME = os.environ.get("APPLICANT_MAIL_CLIENT", "").strip()
+)
+CLIENT_NAME = notify._env("APPLICANT_MAIL_CLIENT")
 
 # 本文に出す項目と順番。左が見出し、右が応募者データのキー
 FIELDS_PERSON = [
