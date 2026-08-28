@@ -335,7 +335,7 @@ def deliver(applicants: list[dict], account_by_applicant: dict, sheets) -> None:
     notifier = notify.Notifier(
         client=applicant_mail.CLIENT_NAME, source="求人ボックス 応募者同期"
     )
-    log = LinkLog(sheets._service, os.environ.get("GOOGLE_SHEET_ID", ""))
+    log = LinkLog(sheets._service)
     already_synced = log.fetch_synced_ids() if (log.enabled and toroo.is_enabled()) else set()
 
     now = time.strftime("%Y/%m/%d %H:%M:%S")
@@ -347,6 +347,12 @@ def deliver(applicants: list[dict], account_by_applicant: dict, sheets) -> None:
         name = str(applicant.get("name") or "").strip() or "応募者"
         target = toroo.is_target(account_id)
 
+        if not target:
+            # 連携ログはクライアントに見せるファイルに置くことがある。
+            # 対象外のアカウントの応募者を書くと、他社の個人情報が
+            # そのクライアントから見えてしまう。ここで必ず弾く。
+            continue
+
         entry = {
             "応募No": applicant_id,
             "氏名": name,
@@ -354,10 +360,10 @@ def deliver(applicants: list[dict], account_by_applicant: dict, sheets) -> None:
             "取り込み経路": IMPORT_ROUTE,
         }
 
-        if target and applicant_mail.MAIL_TO:
+        if applicant_mail.MAIL_TO:
             entry["メール送信"] = _send_applicant_mail(applicant, name, notifier)
 
-        if target and toroo.is_enabled():
+        if toroo.is_enabled():
             if applicant_id in already_synced:
                 entry["備考"] = "Toroo連携済みのためスキップ"
             else:

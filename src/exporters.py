@@ -574,6 +574,10 @@ class RPMExporter:
 
 LINK_LOG_TAB = os.environ.get("LINK_LOG_TAB", "").strip()
 
+# 連携ログを置くスプレッドシート。空なら応募データと同じファイル。
+# クライアントに見せるファイルへ書く場合は、そのファイルのIDを指定する。
+LINK_LOG_SHEET_ID = os.environ.get("LINK_LOG_SHEET_ID", "").strip() or SHEET_ID
+
 LINK_LOG_HEADER = [
     "応募No", "氏名", "取り込み日時", "取り込み経路",
     "メール送信", "Toroo連携日時", "Toroo求人ID", "備考",
@@ -597,9 +601,9 @@ class LinkLog:
     LINK_LOG_TAB が空なら何もしない。
     """
 
-    def __init__(self, service, sheet_id: str):
+    def __init__(self, service):
         self._service = service
-        self._sheet_id = sheet_id
+        self._sheet_id = LINK_LOG_SHEET_ID
 
     @property
     def enabled(self) -> bool:

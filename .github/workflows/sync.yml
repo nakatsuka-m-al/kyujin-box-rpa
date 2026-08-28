@@ -70,6 +70,7 @@ jobs:
           TOROO_ACCOUNT_IDS:           ${{ secrets.TOROO_ACCOUNT_IDS }}
           TOROO_ROUTE_ID:              ${{ vars.TOROO_ROUTE_ID }}
           LINK_LOG_TAB:                ${{ vars.LINK_LOG_TAB }}
+          LINK_LOG_SHEET_ID:           ${{ vars.LINK_LOG_SHEET_ID }}
           KYUJIN_MASTER_EMAIL:         ${{ secrets.KYUJIN_MASTER_EMAIL }}
           KYUJIN_MASTER_PASSWORD:      ${{ secrets.KYUJIN_MASTER_PASSWORD }}
           KYUJIN_SUB_ACCOUNTS:         ${{ secrets.KYUJIN_SUB_ACCOUNTS }}
