@@ -37,8 +37,14 @@ ACCOUNT_IDS = {
     if a.strip()
 }
 
-# 求人ボックス（オーガニック）。広告経由は 94
-RECRUITMENT_ROUTE_ID = 93
+# 応募経路。トルー側で定義されている値を使う。
+#   93  求人ボックス (オーガニック)  無料掲載
+#   94  求人ボックス (広告)          スポンサー求人＝有料掲載
+#   128 求人ボックス（代理店）        代理店経由
+#
+# 直接投稿の有料枠からの応募なので既定は94。
+# 代理店別に集計したい場合は128に変える。環境変数で上書きできる。
+RECRUITMENT_ROUTE_ID = int(os.environ.get("TOROO_ROUTE_ID", "94"))
 
 # トークンは最終アクセスから24時間有効。実行のたびに取り直す必要はない
 TOKEN_CACHE = Path(os.environ.get("TOROO_TOKEN_CACHE", "toroo_token.json"))

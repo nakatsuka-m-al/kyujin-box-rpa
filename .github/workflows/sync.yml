@@ -68,6 +68,7 @@ jobs:
           TOROO_CLIENT_ID:             ${{ secrets.TOROO_CLIENT_ID }}
           TOROO_API_SECRET:            ${{ secrets.TOROO_API_SECRET }}
           TOROO_ACCOUNT_IDS:           ${{ secrets.TOROO_ACCOUNT_IDS }}
+          TOROO_ROUTE_ID:              ${{ vars.TOROO_ROUTE_ID }}
           TOROO_SYNCED_COLUMN:         ${{ vars.TOROO_SYNCED_COLUMN }}
           IMPORT_ROUTE_COLUMN:         ${{ vars.IMPORT_ROUTE_COLUMN }}
           KYUJIN_MASTER_EMAIL:         ${{ secrets.KYUJIN_MASTER_EMAIL }}
