@@ -97,13 +97,17 @@ jobs:
             fi
           }
 
-          # 定期実行。間隔 + 余裕をみた値
-          check_fresh sync.yml      10 "求人ボックス 定期実行（6時間毎）"
-          check_fresh sync-ats.yml  14 "ATS 定期実行（1日3回）"
+          # 定期実行。設定上の間隔より大きく取る。
+          # GitHub は混雑時にスケジュール実行を飛ばすため、実測では
+          # 6時間設定でも 12〜13時間、1日3回設定でも 17時間空くことがある。
+          # 間隔ぴったりで見ると誤報になり、本物の異常を見逃すようになる。
+          check_fresh sync.yml      16 "求人ボックス 定期実行（6時間毎）"
+          check_fresh sync-ats.yml  20 "ATS 定期実行（1日3回）"
 
           # Apps Script の死活。1日1回のハートビートが途絶えたら停止とみなす。
           # トリガー停止・トークン切れ・転送設定の変更がここで検知される。
-          check_fresh heartbeat.yml 30 "Apps Script 死活監視（1日1回）"
+          # 実行マシンの割り当て失敗で1回飛ぶことがあるため、2日分を許容する。
+          check_fresh heartbeat.yml 48 "Apps Script 死活監視（1日1回）"
 
           echo "---"
           if [ "$problems" -gt 0 ]; then
