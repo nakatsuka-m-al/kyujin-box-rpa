@@ -19,7 +19,7 @@ from playwright.sync_api import sync_playwright
 import applicant_mail
 import notify
 import toroo
-from exporters import SheetsExporter, RPMExporter
+from exporters import SheetsExporter, RPMExporter, LinkLog
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,12 +44,6 @@ SEEN_IDS_PATH = Path(os.environ.get("SEEN_IDS_PATH", "seen_applicant_ids.json"))
 # 指定するとそのサブアカウントだけを取得する（メールトリガー用）。
 # 値はアカウント一覧のリンク末尾と同じ形式。例: "6617-5385"
 TARGET_ACCOUNT_ID = os.environ.get("KYUJIN_TARGET_ACCOUNT_ID", "").strip()
-
-# 後から書き足す列。空なら書かない。
-# 応募者取得RPAシートは他の用途でも使われているため、
-# 設定するまでは列に触らないようにしている。
-TOROO_SYNCED_COLUMN = os.environ.get("TOROO_SYNCED_COLUMN", "").strip()
-IMPORT_ROUTE_COLUMN = os.environ.get("IMPORT_ROUTE_COLUMN", "").strip()
 
 # メールトリガー経由か定期実行か。取りこぼしの検知に使う
 IMPORT_ROUTE = "メール" if TARGET_ACCOUNT_ID else "定期"
@@ -320,15 +314,6 @@ def main() -> None:
     # 新規行にも既存行にもアカウントIDを入れる
     sheets.fill_account_ids(account_by_applicant)
 
-    # 取り込み経路を残す。定期実行だけで拾われた応募があれば、
-    # 応募通知メールが届いていないことの証拠になる
-    if IMPORT_ROUTE_COLUMN and new_applicants:
-        sheets.fill_by_applicant_id(
-            IMPORT_ROUTE_COLUMN,
-            "取り込み経路",
-            {a.get("applicant_id", ""): IMPORT_ROUTE for a in new_applicants},
-        )
-
     if new_applicants:
         deliver(new_applicants, account_by_applicant, sheets)
 
@@ -344,41 +329,62 @@ def deliver(applicants: list[dict], account_by_applicant: dict, sheets) -> None:
 
     シート書き込みと同じ実行の中で完結させる。別々に走らせると
     求人ボックスへのログインが2回必要になり、片方だけ成功する不整合も起きる。
+
+    記録は専用タブ（連携ログ）に残す。OBSシートには触らない。
     """
     notifier = notify.Notifier(
         client=applicant_mail.CLIENT_NAME, source="求人ボックス 応募者同期"
     )
-    synced_at = {}
+    log = LinkLog(sheets._service, os.environ.get("GOOGLE_SHEET_ID", ""))
+    already_synced = log.fetch_synced_ids() if (log.enabled and toroo.is_enabled()) else set()
+
+    now = time.strftime("%Y/%m/%d %H:%M:%S")
+    entries = []
 
     for applicant in applicants:
-        account_id = account_by_applicant.get(applicant.get("applicant_id", ""), "")
+        applicant_id = applicant.get("applicant_id", "")
+        account_id = account_by_applicant.get(applicant_id, "")
         name = str(applicant.get("name") or "").strip() or "応募者"
+        target = toroo.is_target(account_id)
 
-        if applicant_mail.MAIL_TO and toroo.is_target(account_id):
-            _send_applicant_mail(applicant, name, notifier)
+        entry = {
+            "応募No": applicant_id,
+            "氏名": name,
+            "取り込み日時": now,
+            "取り込み経路": IMPORT_ROUTE,
+        }
 
-        if toroo.is_enabled() and toroo.is_target(account_id):
-            stamp = _sync_to_toroo(applicant, name, notifier)
-            if stamp:
-                synced_at[applicant.get("applicant_id", "")] = stamp
+        if target and applicant_mail.MAIL_TO:
+            entry["メール送信"] = _send_applicant_mail(applicant, name, notifier)
 
-    if synced_at and TOROO_SYNCED_COLUMN:
-        try:
-            sheets.fill_by_applicant_id(TOROO_SYNCED_COLUMN, "Toroo連携日時", synced_at)
-        except Exception as e:
-            # 記録できないと次回また送ってしまう。重複の原因になる
-            notifier.urgent(
-                "Toroo連携の記録に失敗しました",
-                f"Torooへの登録は成功しましたが、スプレッドシートに連携日時を"
-                f"書き込めませんでした。\n{e}",
-                "次回の実行で同じ方をもう一度送る恐れがあります。",
-                "Torooの管理画面で重複が発生していないか確認してください。",
-            )
+        if target and toroo.is_enabled():
+            if applicant_id in already_synced:
+                entry["備考"] = "Toroo連携済みのためスキップ"
+            else:
+                stamp, job_id, note = _sync_to_toroo(applicant, name, notifier)
+                entry["Toroo連携日時"] = stamp
+                entry["Toroo求人ID"] = job_id
+                if note:
+                    entry["備考"] = note
+
+        entries.append(entry)
+
+    try:
+        log.append(entries)
+    except Exception as e:
+        # 記録できないと次回また送ってしまう。重複の原因になる
+        notifier.urgent(
+            "Toroo連携の記録に失敗しました",
+            f"連携ログに書き込めませんでした。\n{e}",
+            "次回の実行で同じ方をもう一度送る恐れがあります。",
+            "Torooの管理画面で重複が発生していないか確認してください。",
+        )
 
     notifier.flush()
 
 
-def _send_applicant_mail(applicant: dict, name: str, notifier) -> None:
+def _send_applicant_mail(applicant: dict, name: str, notifier) -> str:
+    """連携ログに残す結果を返す"""
     try:
         mail_id = applicant_mail.send(applicant)
         logger.info(f"[{name}] 応募通知メールを送信しました")
@@ -389,7 +395,7 @@ def _send_applicant_mail(applicant: dict, name: str, notifier) -> None:
             "先方に応募が伝わっていません。スプレッドシートには記録済みです。",
             "復旧後に手動で連絡するか、こちらから再送します。",
         )
-        return
+        return "送信失敗"
 
     # 宛先が間違っていても送信自体は成功する。状態を見ないと気づけない
     status = notify.get_mail_status(mail_id)
@@ -401,26 +407,32 @@ def _send_applicant_mail(applicant: dict, name: str, notifier) -> None:
             "先方に応募が伝わっていません。",
             "宛先アドレスが正しいか確認してください。",
         )
+        return f"届きませんでした（{status}）"
+    return now_stamp()
 
 
-def _sync_to_toroo(applicant: dict, name: str, notifier) -> str:
-    """成功したら連携日時の文字列を返す。失敗したら空文字"""
+def now_stamp() -> str:
+    return time.strftime("%Y/%m/%d %H:%M:%S")
+
+
+def _sync_to_toroo(applicant: dict, name: str, notifier) -> tuple[str, str, str]:
+    """(連携日時, 求人ID, 備考) を返す。失敗したら連携日時は空"""
     try:
         recruitment_id = toroo.resolve_recruitment_id(
             applicant.get("job_label", ""), applicant.get("job_title", "")
         )
     except toroo.TorooError as e:
         _notify_toroo_error(e, name, notifier, phase="求人ID解決", applicant=applicant)
-        return ""
+        return "", "", f"求人IDを解決できず（{e.kind}）"
 
     try:
         toroo.create_applicant(applicant, recruitment_id)
     except toroo.TorooError as e:
         _notify_toroo_error(e, name, notifier, phase="応募者登録", applicant=applicant)
-        return ""
+        return "", recruitment_id, f"登録できず（{e.kind}）"
 
     logger.info(f"[{name}] Torooに登録しました（求人ID {recruitment_id}）")
-    return time.strftime("%Y/%m/%d %H:%M:%S")
+    return now_stamp(), recruitment_id, ""
 
 
 def _notify_toroo_error(e, name: str, notifier, phase: str, applicant: dict) -> None:

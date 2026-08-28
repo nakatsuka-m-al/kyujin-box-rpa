@@ -566,3 +566,102 @@ class RPMExporter:
 
     def _build_payload(self, a: dict) -> dict[str, Any]:
         return {rpm_key: a[k] for k, rpm_key in FIELD_MAP.items() if a.get(k)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 連携ログ
+# ─────────────────────────────────────────────────────────────────────────────
+
+LINK_LOG_TAB = os.environ.get("LINK_LOG_TAB", "").strip()
+
+LINK_LOG_HEADER = [
+    "応募No", "氏名", "取り込み日時", "取り込み経路",
+    "メール送信", "Toroo連携日時", "Toroo求人ID", "備考",
+]
+
+
+class LinkLog:
+    """
+    連携の記録を専用タブに残す。
+
+    OBSシートの空き列に書くこともできるが、あのシートは応募データの
+    受け皿として他の用途でも使われている。列を増やすと、利用者が入れている
+    計算式やフィルタと干渉する恐れがある。
+
+    ここでは独立したタブに1行ずつ追記する。
+    OBSシートには一切触らない。
+
+    キャッシュではなくシートを正とするのは、キャッシュが消えたときに
+    同じ応募者をもう一度Torooへ送ってしまうため。実際にATSで起きている。
+
+    LINK_LOG_TAB が空なら何もしない。
+    """
+
+    def __init__(self, service, sheet_id: str):
+        self._service = service
+        self._sheet_id = sheet_id
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._service and self._sheet_id and LINK_LOG_TAB)
+
+    def fetch_synced_ids(self) -> set[str]:
+        """Toroo連携が済んでいる応募No。二重送信を防ぐために使う"""
+        if not self.enabled:
+            return set()
+        self._ensure_tab()
+        result = (
+            self._service.spreadsheets().values()
+            .batchGet(
+                spreadsheetId=self._sheet_id,
+                ranges=[f"{LINK_LOG_TAB}!A2:A", f"{LINK_LOG_TAB}!F2:F"],
+            )
+            .execute()
+        )
+        ids = [r[0] if r else "" for r in result["valueRanges"][0].get("values", [])]
+        synced = [r[0] if r else "" for r in result["valueRanges"][1].get("values", [])]
+        done = set()
+        for i, applicant_id in enumerate(ids):
+            if applicant_id and i < len(synced) and synced[i]:
+                done.add(str(applicant_id).strip())
+        logger.info(f"Toroo連携済み: {len(done)} 件")
+        return done
+
+    def append(self, rows: list[dict]) -> None:
+        """1応募1行。キーは LINK_LOG_HEADER と同じ名前"""
+        if not self.enabled or not rows:
+            return
+        self._ensure_tab()
+        values = [[str(r.get(col, "")) for col in LINK_LOG_HEADER] for r in rows]
+        self._service.spreadsheets().values().append(
+            spreadsheetId=self._sheet_id,
+            range=f"{LINK_LOG_TAB}!A:H",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body={"values": values},
+        ).execute()
+        logger.info(f"連携ログに {len(values)} 行追記しました")
+
+    def _ensure_tab(self) -> None:
+        meta = self._service.spreadsheets().get(spreadsheetId=self._sheet_id).execute()
+        titles = [s["properties"]["title"] for s in meta["sheets"]]
+        if LINK_LOG_TAB not in titles:
+            self._service.spreadsheets().batchUpdate(
+                spreadsheetId=self._sheet_id,
+                body={"requests": [{"addSheet": {"properties": {"title": LINK_LOG_TAB}}}]},
+            ).execute()
+            logger.info(f"タブ '{LINK_LOG_TAB}' を作成しました")
+
+        head = (
+            self._service.spreadsheets().values()
+            .get(spreadsheetId=self._sheet_id, range=f"{LINK_LOG_TAB}!A1:H1")
+            .execute()
+        )
+        if not head.get("values"):
+            self._service.spreadsheets().values().update(
+                spreadsheetId=self._sheet_id,
+                range=f"{LINK_LOG_TAB}!A1",
+                valueInputOption="RAW",
+                body={"values": [LINK_LOG_HEADER]},
+            ).execute()
+            logger.info(f"'{LINK_LOG_TAB}' に見出しを入れました")
