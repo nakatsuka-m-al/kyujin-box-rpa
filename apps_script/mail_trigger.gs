@@ -169,12 +169,16 @@ function processMails(config) {
       });
     }
 
-    // 必要な情報が取れない。メール形式が変わった可能性があるので隔離する
+    // 必要な情報が取れない。メール形式が変わった可能性があるので隔離する。
+    // ラベルを付けた分は次回の検索から外れるので、通知は1通で済む。
+    const unknownSubjects = [];
     if (unknown.length > 0) {
       const label = getOrCreateLabel(LABEL_NEEDS_CHECK);
       unknown.forEach(function (t) {
-        console.error(`[${config.name}] 判別できません: ${t.getFirstMessageSubject()}`);
+        const subject = t.getFirstMessageSubject();
+        console.error(`[${config.name}] 判別できません: ${subject}`);
         t.addLabel(label);
+        unknownSubjects.push(subject);
       });
     }
 
@@ -206,8 +210,24 @@ function processMails(config) {
     // 例外を投げないと Apps Script が「正常終了」と判断し、
     // Google からの障害通知メールが飛ばない。
     // トークン切れなどが無音で放置されるのを防ぐため、最後に必ず投げる。
+    //
+    // 判別できないメールも同じ理由でここに含める。
+    // ラベルを付けるだけだと、通知メールの形式が変わったことに
+    // 誰も気づかないまま即時取り込みが止まり続ける。
+    const problems = [];
     if (failures.length > 0) {
-      throw new Error(`[${config.name}] 起動に失敗: ${failures.join(' / ')}`);
+      problems.push(`起動に失敗: ${failures.join(' / ')}`);
+    }
+    if (unknownSubjects.length > 0) {
+      problems.push(
+        `アカウントIDを読み取れないメールが ${unknownSubjects.length} 件あります。` +
+        `通知メールの形式が変わった可能性があります。` +
+        `Gmailで「${LABEL_NEEDS_CHECK}」ラベルを確認してください。` +
+        `件名: ${unknownSubjects.join(' / ')}`
+      );
+    }
+    if (problems.length > 0) {
+      throw new Error(`[${config.name}] ${problems.join(' ／ ')}`);
     }
 
   } finally {
