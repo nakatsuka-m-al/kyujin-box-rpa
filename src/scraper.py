@@ -11,10 +11,14 @@ import json
 import logging
 import os
 import time
+import traceback
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+import applicant_mail
+import notify
+import toroo
 from exporters import SheetsExporter, RPMExporter
 
 logging.basicConfig(
@@ -40,6 +44,15 @@ SEEN_IDS_PATH = Path(os.environ.get("SEEN_IDS_PATH", "seen_applicant_ids.json"))
 # 指定するとそのサブアカウントだけを取得する（メールトリガー用）。
 # 値はアカウント一覧のリンク末尾と同じ形式。例: "6617-5385"
 TARGET_ACCOUNT_ID = os.environ.get("KYUJIN_TARGET_ACCOUNT_ID", "").strip()
+
+# 後から書き足す列。空なら書かない。
+# 応募者取得RPAシートは他の用途でも使われているため、
+# 設定するまでは列に触らないようにしている。
+TOROO_SYNCED_COLUMN = os.environ.get("TOROO_SYNCED_COLUMN", "").strip()
+IMPORT_ROUTE_COLUMN = os.environ.get("IMPORT_ROUTE_COLUMN", "").strip()
+
+# メールトリガー経由か定期実行か。取りこぼしの検知に使う
+IMPORT_ROUTE = "メール" if TARGET_ACCOUNT_ID else "定期"
 
 # ─── CSV カラムマッピング ──────────────────────────────────────────────────────
 COLUMN_MAP: dict[str, str] = {
@@ -307,9 +320,191 @@ def main() -> None:
     # 新規行にも既存行にもアカウントIDを入れる
     sheets.fill_account_ids(account_by_applicant)
 
+    # 取り込み経路を残す。定期実行だけで拾われた応募があれば、
+    # 応募通知メールが届いていないことの証拠になる
+    if IMPORT_ROUTE_COLUMN and new_applicants:
+        sheets.fill_by_applicant_id(
+            IMPORT_ROUTE_COLUMN,
+            "取り込み経路",
+            {a.get("applicant_id", ""): IMPORT_ROUTE for a in new_applicants},
+        )
+
+    if new_applicants:
+        deliver(new_applicants, account_by_applicant, sheets)
+
     save_seen_ids(seen_ids)
     logger.info("完了")
 
 
+# ─── 応募者ごとの後処理 ───────────────────────────────────────────────────────
+
+def deliver(applicants: list[dict], account_by_applicant: dict, sheets) -> None:
+    """
+    シートに記録したあと、応募者ごとにメール送信とToroo登録を行う。
+
+    シート書き込みと同じ実行の中で完結させる。別々に走らせると
+    求人ボックスへのログインが2回必要になり、片方だけ成功する不整合も起きる。
+    """
+    notifier = notify.Notifier(
+        client=applicant_mail.CLIENT_NAME, source="求人ボックス 応募者同期"
+    )
+    synced_at = {}
+
+    for applicant in applicants:
+        account_id = account_by_applicant.get(applicant.get("applicant_id", ""), "")
+        name = str(applicant.get("name") or "").strip() or "応募者"
+
+        if applicant_mail.MAIL_TO and toroo.is_target(account_id):
+            _send_applicant_mail(applicant, name, notifier)
+
+        if toroo.is_enabled() and toroo.is_target(account_id):
+            stamp = _sync_to_toroo(applicant, name, notifier)
+            if stamp:
+                synced_at[applicant.get("applicant_id", "")] = stamp
+
+    if synced_at and TOROO_SYNCED_COLUMN:
+        try:
+            sheets.fill_by_applicant_id(TOROO_SYNCED_COLUMN, "Toroo連携日時", synced_at)
+        except Exception as e:
+            # 記録できないと次回また送ってしまう。重複の原因になる
+            notifier.urgent(
+                "Toroo連携の記録に失敗しました",
+                f"Torooへの登録は成功しましたが、スプレッドシートに連携日時を"
+                f"書き込めませんでした。\n{e}",
+                "次回の実行で同じ方をもう一度送る恐れがあります。",
+                "Torooの管理画面で重複が発生していないか確認してください。",
+            )
+
+    notifier.flush()
+
+
+def _send_applicant_mail(applicant: dict, name: str, notifier) -> None:
+    try:
+        mail_id = applicant_mail.send(applicant)
+        logger.info(f"[{name}] 応募通知メールを送信しました")
+    except Exception as e:
+        notifier.urgent(
+            f"応募通知メールを送信できませんでした（{name}様）",
+            f"{name}様の応募情報をメールで送信できませんでした。\n{e}",
+            "先方に応募が伝わっていません。スプレッドシートには記録済みです。",
+            "復旧後に手動で連絡するか、こちらから再送します。",
+        )
+        return
+
+    # 宛先が間違っていても送信自体は成功する。状態を見ないと気づけない
+    status = notify.get_mail_status(mail_id)
+    if status in ("bounced", "complained"):
+        notifier.urgent(
+            "応募通知メールが宛先に届いていません",
+            f"{name}様の応募情報を送信しましたが、宛先で受け取れませんでした"
+            f"（状態: {status}）。",
+            "先方に応募が伝わっていません。",
+            "宛先アドレスが正しいか確認してください。",
+        )
+
+
+def _sync_to_toroo(applicant: dict, name: str, notifier) -> str:
+    """成功したら連携日時の文字列を返す。失敗したら空文字"""
+    try:
+        recruitment_id = toroo.resolve_recruitment_id(
+            applicant.get("job_label", ""), applicant.get("job_title", "")
+        )
+    except toroo.TorooError as e:
+        _notify_toroo_error(e, name, notifier, phase="求人ID解決", applicant=applicant)
+        return ""
+
+    try:
+        toroo.create_applicant(applicant, recruitment_id)
+    except toroo.TorooError as e:
+        _notify_toroo_error(e, name, notifier, phase="応募者登録", applicant=applicant)
+        return ""
+
+    logger.info(f"[{name}] Torooに登録しました（求人ID {recruitment_id}）")
+    return time.strftime("%Y/%m/%d %H:%M:%S")
+
+
+def _notify_toroo_error(e, name: str, notifier, phase: str, applicant: dict) -> None:
+    detail = (
+        f"応募者　　{name}様\n"
+        f"応募日時　{applicant.get('applied_at', '')}\n"
+        f"求人　　　{applicant.get('job_title', '')}\n"
+        f"求人ラベル　{applicant.get('job_label', '') or '（空欄）'}"
+    )
+
+    if e.kind == "auth":
+        notifier.urgent(
+            "Torooの認証に失敗しました",
+            f"Torooへのログインが拒否されました。\n{e}",
+            "応募者をTorooに登録できていません。",
+            "APIキーの有効期限とオプション契約の状態を確認してください。",
+        )
+    elif e.kind == "network":
+        notifier.check(
+            "Torooに接続できませんでした",
+            f"Torooから正常な応答がありませんでした（{phase}）。\n{e}",
+            "次回の実行で再送されます。",
+            "様子を見てください。2回続く場合は改めて連絡します。",
+        )
+    elif e.kind == "not_found":
+        notifier.check(
+            f"Toroo求人IDを特定できません（{name}様）",
+            f"{name}様が応募された求人に対応する、Toroo側の求人が"
+            f"見つかりませんでした。\n{e}",
+            "この方はTorooに登録されていません。"
+            "スプレッドシートには記録済みです。",
+            "求人ボックスの求人ラベルに、Torooの求人IDを入力してください。"
+            "入力後、次回の実行で自動的に再送されます。",
+            details=detail,
+        )
+    elif e.kind == "ambiguous":
+        notifier.check(
+            f"該当する求人が複数あります（{name}様）",
+            f"{name}様が応募された求人の候補がToroo側に2件以上ありました。\n{e}",
+            "誤った求人に紐づくのを避けるため、登録していません。",
+            "求人ラベルにTorooの求人IDを入力してください。",
+            details=detail,
+        )
+    elif e.kind == "rejected":
+        notifier.check(
+            f"Torooへの登録が拒否されました（{name}様）",
+            f"Torooが応募者データを受け付けませんでした。\n{e}",
+            "この方はTorooに登録されていません。"
+            "スプレッドシートには記録済みです。",
+            "不足している項目を確認してください。",
+            details=detail,
+        )
+    elif e.kind == "unknown_result":
+        notifier.urgent(
+            f"Toroo登録の結果を確認できません（{name}様）",
+            f"送信しましたが応答が返ってきませんでした。\n{e}",
+            "登録されたかどうか分かりません。",
+            f"Torooの管理画面で{name}様が登録されているか確認してください。"
+            "無ければ手動で追加してください。",
+            details=detail,
+        )
+    else:
+        notifier.urgent(
+            f"Toroo連携で予期しないエラーが発生しました（{name}様）",
+            str(e),
+            "この方はTorooに登録されていません。",
+            "実行ログを確認してください。",
+            details=detail,
+        )
+
+
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        # 想定外の例外もそのまま落とすと英語のログしか残らない。
+        # 日本語で1通送ってから、終了コードは失敗のままにする。
+        notifier = notify.Notifier(source="求人ボックス 応募者同期")
+        notifier.urgent(
+            "処理中に予期しないエラーが発生しました",
+            f"想定していないエラーで処理が止まりました。\n{type(e).__name__}: {e}",
+            "応募を取り込めていない可能性があります。",
+            "実行ログを確認してください。",
+            details=traceback.format_exc()[-1500:],
+        )
+        notifier.flush()
+        raise

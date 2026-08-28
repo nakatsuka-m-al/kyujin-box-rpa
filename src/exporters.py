@@ -191,6 +191,68 @@ class SheetsExporter:
         ).execute()
         logger.info(f"{col}列にアカウントIDを {len(updates)} 行分入れました")
 
+    def fill_by_applicant_id(
+        self, column: str, header: str, value_by_applicant: dict
+    ) -> None:
+        """応募No をたどって、指定した列に値を入れる。
+
+        Toroo連携日時や取り込み経路のように、後から分かる情報を書き足すために使う。
+        列を指定していない（環境変数が空）ときは何もしない。
+        シートは他の用途でも使われているため、設定するまで触らない。
+        既に値が入っている行は上書きしない。
+        """
+        if not self._service or not SHEET_ID or not column or not value_by_applicant:
+            return
+
+        col = column
+        result = (
+            self._service.spreadsheets().values()
+            .batchGet(
+                spreadsheetId=SHEET_ID,
+                ranges=[f"{SHEET_TAB}!A2:A", f"{SHEET_TAB}!{col}2:{col}"],
+            )
+            .execute()
+        )
+        applicant_ids = [r[0] if r else "" for r in result["valueRanges"][0].get("values", [])]
+        current = [r[0] if r else "" for r in result["valueRanges"][1].get("values", [])]
+
+        updates = []
+        for i, applicant_id in enumerate(applicant_ids):
+            if (current[i] if i < len(current) else ""):
+                continue
+            value = value_by_applicant.get(str(applicant_id).strip())
+            if not value:
+                continue
+            updates.append({
+                "range": f"{SHEET_TAB}!{col}{i + 2}",
+                "values": [[value]],
+            })
+
+        if not updates:
+            return
+
+        self._ensure_column_header(col, header)
+        self._service.spreadsheets().values().batchUpdate(
+            spreadsheetId=SHEET_ID,
+            body={"valueInputOption": "USER_ENTERED", "data": updates},
+        ).execute()
+        logger.info(f"{col}列（{header}）に {len(updates)} 行分入れました")
+
+    def _ensure_column_header(self, col: str, header: str) -> None:
+        result = (
+            self._service.spreadsheets().values()
+            .get(spreadsheetId=SHEET_ID, range=f"{SHEET_TAB}!{col}1")
+            .execute()
+        )
+        if not result.get("values"):
+            self._service.spreadsheets().values().update(
+                spreadsheetId=SHEET_ID,
+                range=f"{SHEET_TAB}!{col}1",
+                valueInputOption="RAW",
+                body={"values": [[header]]},
+            ).execute()
+            logger.info(f"{col}1 に見出し「{header}」を入れました")
+
     def _ensure_account_id_header(self) -> None:
         col = ACCOUNT_ID_COLUMN
         result = (
