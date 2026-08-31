@@ -14,7 +14,6 @@ Toroo API の疎通確認。読み取り専用で、どこにも書き込まな�
   TOROO_SEARCH_WORD  検索の動きを試したいとき。省略可
 """
 
-import json
 import logging
 import os
 import sys
@@ -77,7 +76,8 @@ def check_jobs() -> list:
             return jobs
 
         if res.status_code >= 300:
-            logger.error(f"求人検索が {res.status_code} を返しました: {res.text[:400]}")
+            # エラー本文にも求人の情報が入りうるため、状態コードだけを出す
+            logger.error(f"求人検索が {res.status_code} を返しました")
             return jobs
 
         data = res.json() or {}
@@ -91,10 +91,13 @@ def check_jobs() -> list:
 
     logger.info(f"合計 {len(jobs)} 件")
 
+    # 求人票の中身はログに出さない。
+    # このリポジトリは公開で、実行ログは誰でも読める。
+    # 非公開求人も含まれるため、項目名だけを出して中身は伏せる。
     if jobs:
         logger.info("")
-        logger.info("--- レスポンスの1件目（項目を確認する）---")
-        logger.info(json.dumps(jobs[0], ensure_ascii=False, indent=2)[:3000])
+        logger.info("--- レスポンスに含まれる項目名 ---")
+        logger.info(", ".join(sorted(jobs[0].keys())))
 
     return jobs
 
@@ -109,16 +112,26 @@ def check_ids(jobs: list) -> None:
         logger.warning("求人が0件のため確認できません。Toroo側にテスト求人を作ってください")
         return
 
+    # 求人IDと桁数だけを出す。求人タイトルは出さない
     over = 0
-    for job in jobs[:20]:
+    lengths = {}
+    public_count = 0
+    for job in jobs:
         job_id = str(job.get("id", ""))
-        title = str(job.get("title", ""))[:30]
-        public = "公開" if job.get("is_public") else "非公開"
-        fits = len(job_id) <= LABEL_LIMIT
-        if not fits:
+        if job.get("is_public"):
+            public_count += 1
+        lengths[len(job_id)] = lengths.get(len(job_id), 0) + 1
+        if len(job_id) > LABEL_LIMIT:
             over += 1
-        mark = "" if fits else "  ← 求人ラベルに収まりません"
-        logger.info(f"  id={job_id!r} ({len(job_id)}文字) {public}  {title}{mark}")
+
+    logger.info(f"公開 {public_count} 件 / 非公開 {len(jobs) - public_count} 件")
+    logger.info("求人IDの桁数の内訳:")
+    for n in sorted(lengths):
+        mark = "" if n <= LABEL_LIMIT else "  ← 求人ラベルに収まりません"
+        logger.info(f"  {n}文字: {lengths[n]} 件{mark}")
+
+    sample = str(jobs[0].get("id", ""))
+    logger.info(f"求人IDの例: {sample!r}（形式の確認用に1件だけ）")
 
     logger.info("")
     if over == 0:
@@ -145,7 +158,7 @@ def check_search(jobs: list) -> None:
         return
 
     job_id = str(jobs[0].get("id", ""))
-    logger.info(f"検索語に求人ID {job_id!r} を渡してみます")
+    logger.info("検索語に求人IDを渡してみます")
 
     try:
         res = toroo._request("POST", "/v2/jobs/search", json={"search_word": job_id, "preview": True})
@@ -154,7 +167,7 @@ def check_search(jobs: list) -> None:
         return
 
     if res.status_code >= 300:
-        logger.error(f"{res.status_code} を返しました: {res.text[:300]}")
+        logger.error(f"{res.status_code} を返しました")
         return
 
     results = (res.json() or {}).get("results", []) or []
