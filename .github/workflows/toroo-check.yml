@@ -11,6 +11,10 @@ on:
         description: "検索語（空なら全求人を取得）"
         required: false
         default: ""
+      count_only:
+        description: "総数だけ調べる（速い）。何か入力すると有効"
+        required: false
+        default: ""
 
 jobs:
   check:
@@ -38,4 +42,5 @@ jobs:
           TOROO_CLIENT_ID:    ${{ secrets.TOROO_CLIENT_ID }}
           TOROO_API_SECRET:   ${{ secrets.TOROO_API_SECRET }}
           TOROO_SEARCH_WORD:  ${{ inputs.search_word }}
+          TOROO_COUNT_ONLY:   ${{ inputs.count_only }}
         run: python src/toroo_check.py

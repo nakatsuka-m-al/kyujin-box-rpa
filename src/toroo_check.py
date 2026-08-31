@@ -58,6 +58,53 @@ def check_auth() -> bool:
     return True
 
 
+def count_jobs() -> int:
+    """
+    求人の総数を調べる。
+
+    全ページ取るとページ数に比例して時間がかかるので、
+    「そのページに結果があるか」を二分探索して最終ページを見つける。
+    3000件なら100回のリクエストが、10回程度で済む。
+    """
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("2-1. 求人の総数")
+    logger.info("=" * 60)
+
+    def has_results(page: int) -> bool:
+        res = toroo._request(
+            "POST", "/v2/jobs/search",
+            json={"preview": True, "page": page, "per": 30},
+        )
+        if res.status_code >= 300:
+            return False
+        return bool((res.json() or {}).get("results"))
+
+    if not has_results(1):
+        logger.info("求人は0件です")
+        return 0
+
+    # 上限を倍々で広げて、結果が無くなるページを探す
+    low, high = 1, 2
+    while has_results(high):
+        low = high
+        high *= 2
+        if high > 100000:
+            break
+
+    # low には結果があり、high には無い。境界を挟み撃ちにする
+    while high - low > 1:
+        mid = (low + high) // 2
+        if has_results(mid):
+            low = mid
+        else:
+            high = mid
+
+    logger.info(f"最終ページ: {low}（1ページ30件）")
+    logger.info(f"求人はおよそ {(low - 1) * 30 + 1}〜{low * 30} 件です")
+    return low
+
+
 def check_jobs() -> list:
     logger.info("")
     logger.info("=" * 60)
@@ -214,6 +261,13 @@ def main() -> None:
     ok = check_auth()
     if not ok:
         sys.exit(1)
+
+    count_jobs()
+
+    if os.environ.get("TOROO_COUNT_ONLY", "").strip():
+        logger.info("")
+        logger.info("総数のみ確認しました")
+        return
 
     jobs = check_jobs()
     check_ids(jobs)
