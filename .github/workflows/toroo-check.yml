@@ -15,6 +15,10 @@ on:
         description: "総数だけ調べる（速い）。何か入力すると有効"
         required: false
         default: ""
+      count_area:
+        description: "件数を数えるエリア（既定：東京都）"
+        required: false
+        default: "東京都"
 
 jobs:
   check:
@@ -43,4 +47,5 @@ jobs:
           TOROO_API_SECRET:   ${{ secrets.TOROO_API_SECRET }}
           TOROO_SEARCH_WORD:  ${{ inputs.search_word }}
           TOROO_COUNT_ONLY:   ${{ inputs.count_only }}
+          TOROO_COUNT_AREA:   ${{ inputs.count_area }}
         run: python src/toroo_check.py

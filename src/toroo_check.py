@@ -58,33 +58,27 @@ def check_auth() -> bool:
     return True
 
 
-def count_jobs() -> int:
+def count_matching(label: str, extra: dict | None = None) -> int:
     """
-    求人の総数を調べる。
+    条件に合う求人のおおよその件数を調べる。
 
     全ページ取るとページ数に比例して時間がかかるので、
     「そのページに結果があるか」を二分探索して最終ページを見つける。
-    3000件なら100回のリクエストが、10回程度で済む。
+    3万件でも20回程度のリクエストで済む。
     """
-    logger.info("")
-    logger.info("=" * 60)
-    logger.info("2-1. 求人の総数")
-    logger.info("=" * 60)
-
     def has_results(page: int) -> bool:
-        res = toroo._request(
-            "POST", "/v2/jobs/search",
-            json={"preview": True, "page": page, "per": 30},
-        )
+        body = {"preview": True, "page": page, "per": 30}
+        if extra:
+            body.update(extra)
+        res = toroo._request("POST", "/v2/jobs/search", json=body)
         if res.status_code >= 300:
             return False
         return bool((res.json() or {}).get("results"))
 
     if not has_results(1):
-        logger.info("求人は0件です")
+        logger.info(f"  {label}: 0 件")
         return 0
 
-    # 上限を倍々で広げて、結果が無くなるページを探す
     low, high = 1, 2
     while has_results(high):
         low = high
@@ -92,7 +86,6 @@ def count_jobs() -> int:
         if high > 100000:
             break
 
-    # low には結果があり、high には無い。境界を挟み撃ちにする
     while high - low > 1:
         mid = (low + high) // 2
         if has_results(mid):
@@ -100,9 +93,30 @@ def count_jobs() -> int:
         else:
             high = mid
 
-    logger.info(f"最終ページ: {low}（1ページ30件）")
-    logger.info(f"求人はおよそ {(low - 1) * 30 + 1}〜{low * 30} 件です")
+    logger.info(f"  {label}: およそ {(low - 1) * 30 + 1:,}〜{low * 30:,} 件（{low}ページ）")
     return low
+
+
+def count_jobs() -> int:
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("2-1. 求人の件数")
+    logger.info("=" * 60)
+
+    total = count_matching("全体")
+
+    # 2アカウント運用（東京とそれ以外）で分けられるかを見る。
+    # 求人ボックスの公開求人は1アカウント1万件までなので、
+    # どちらかが1万件を超えると分割しても収まらない。
+    area = os.environ.get("TOROO_COUNT_AREA", "東京都").strip()
+    if area:
+        logger.info("")
+        logger.info(f"エリア別（search_area で絞り込み）")
+        count_matching(area, {"search_area": [area]})
+
+    logger.info("")
+    logger.info("求人ボックスの公開求人は1アカウント1万件までです")
+    return total
 
 
 def check_jobs() -> list:
