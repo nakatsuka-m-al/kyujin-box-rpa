@@ -1,0 +1,41 @@
+name: Toroo疎通確認（読み取り専用）
+
+# テストのフェーズ1で使う。手動実行のみ。
+# Toroo APIに読み取りのリクエストを投げるだけで、どこにも書き込まない。
+# 求人ボックスにも触らないため、アカウント開設前でも実行できる。
+
+on:
+  workflow_dispatch:
+    inputs:
+      search_word:
+        description: "検索語（空なら全求人を取得）"
+        required: false
+        default: ""
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python セットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 依存インストール
+        timeout-minutes: 8
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          pip install requests
+
+      - name: 疎通確認
+        env:
+          TOROO_CLIENT_ID:    ${{ secrets.TOROO_CLIENT_ID }}
+          TOROO_API_SECRET:   ${{ secrets.TOROO_API_SECRET }}
+          TOROO_SEARCH_WORD:  ${{ inputs.search_word }}
+        run: python src/toroo_check.py
