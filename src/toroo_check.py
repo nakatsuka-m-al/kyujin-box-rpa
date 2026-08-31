@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 # 求人ボックスの求人ラベルの上限。ここに収まるかが設計の分かれ目
 LABEL_LIMIT = 20
 
+# 取得するページ数の上限。暴走よけ。per=30 なので 100ページで3000件
+MAX_PAGES = 100
+
 
 def mask(value: str) -> str:
     """秘密情報はログに出さない。設定されているかだけ分かればよい"""
@@ -63,11 +66,16 @@ def check_jobs() -> list:
 
     jobs = []
     page = 1
-    while page <= 10:  # 暴走よけ
-        body = {"preview": True, "page": page}
+    truncated = False
+    while True:
+        if page > MAX_PAGES:
+            truncated = True
+            break
+        # per は最大30。1回あたりの件数を増やしてページ数を減らす
+        body = {"preview": True, "page": page, "per": 30}
         word = os.environ.get("TOROO_SEARCH_WORD", "").strip()
         if word:
-            body["search_word"] = word
+            body["search_word"] = [word]   # 配列で渡す
 
         try:
             res = toroo._request("POST", "/v2/jobs/search", json=body)
@@ -90,6 +98,11 @@ def check_jobs() -> list:
         page += 1
 
     logger.info(f"合計 {len(jobs)} 件")
+    if truncated:
+        logger.warning(
+            f"{MAX_PAGES} ページで打ち切りました。まだ続きがあります。"
+            "実際の求人数はこれより多いです"
+        )
 
     # 求人票の中身はログに出さない。
     # このリポジトリは公開で、実行ログは誰でも読める。
@@ -147,21 +160,34 @@ def check_ids(jobs: list) -> None:
 
 
 def check_search(jobs: list) -> None:
-    """求人IDだけで引けるか。部分一致が効くかを見る"""
+    """
+    求人タイトルで検索して、1件に絞れるかを見る。
+
+    求人IDでの検索はできない（search_word は title と work_content にしか効かない）。
+    求人ラベルが空だったときの受け皿として、タイトル検索が使えるかを確かめる。
+    """
     logger.info("")
     logger.info("=" * 60)
-    logger.info("4. 求人IDでの検索")
+    logger.info("4. 求人タイトルでの検索")
     logger.info("=" * 60)
 
     if not jobs:
         logger.warning("求人が0件のため確認できません")
         return
 
-    job_id = str(jobs[0].get("id", ""))
-    logger.info("検索語に求人IDを渡してみます")
+    target = jobs[0]
+    title = str(target.get("title", "")).strip()
+    if not title:
+        logger.warning("1件目に求人タイトルがありません")
+        return
+
+    logger.info("1件目の求人タイトルで検索してみます（タイトルはログに出しません）")
 
     try:
-        res = toroo._request("POST", "/v2/jobs/search", json={"search_word": job_id, "preview": True})
+        res = toroo._request(
+            "POST", "/v2/jobs/search",
+            json={"search_word": [title], "preview": True, "per": 30},
+        )
     except toroo.TorooError as e:
         logger.error(f"検索に失敗しました: {e}")
         return
@@ -172,12 +198,16 @@ def check_search(jobs: list) -> None:
 
     results = (res.json() or {}).get("results", []) or []
     logger.info(f"結果: {len(results)} 件")
-    if len(results) == 1 and str(results[0].get("id")) == job_id:
-        logger.info("求人IDだけで1件に絞れました。この方式が使えます")
+
+    if len(results) == 1:
+        logger.info("1件に絞れました。ラベルが空でもタイトルから解決できます")
     elif not results:
-        logger.warning("求人IDでは引けませんでした。求人タイトルでの検索が必要です")
+        logger.warning("引けませんでした。ラベルが空の求人は解決できません")
     else:
-        logger.warning(f"{len(results)} 件ヒットしました。一意に決まりません")
+        logger.warning(
+            f"{len(results)} 件ヒットしました。タイトルだけでは一意に決まりません。"
+            "求人ラベルへのID入力が必須です"
+        )
 
 
 def main() -> None:

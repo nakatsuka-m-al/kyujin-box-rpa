@@ -194,7 +194,12 @@ def resolve_recruitment_id(job_label: str, job_title: str) -> str:
     if not title:
         raise TorooError("not_found", "求人ラベルが空で、求人タイトルもありません")
 
-    res = _request("POST", "/v2/jobs/search", json={"search_word": title, "preview": True})
+    # search_word は配列。title または work_content への部分一致（OR検索）。
+    # 求人IDでの検索はできないため、ラベルが空のときはタイトルで引くしかない
+    res = _request(
+        "POST", "/v2/jobs/search",
+        json={"search_word": [title], "preview": True, "per": 30},
+    )
     if res.status_code >= 300:
         raise TorooError("network", f"求人検索に失敗しました: {res.status_code} {res.text[:200]}")
 
