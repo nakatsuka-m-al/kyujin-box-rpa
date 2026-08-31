@@ -69,7 +69,7 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "=== 試行 $attempt/3 ==="
-            if python src/ats_scraper.py; then
+            if RETRY_ATTEMPT=$attempt RETRY_TOTAL=3 python src/ats_scraper.py; then
               echo "成功（試行 $attempt 回目）"
               exit 0
             fi
@@ -142,7 +142,7 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             echo "=== 試行 $attempt/3 ==="
-            if python src/ats_scraper.py; then
+            if RETRY_ATTEMPT=$attempt RETRY_TOTAL=3 python src/ats_scraper.py; then
               echo "成功（試行 $attempt 回目）"
               exit 0
             fi

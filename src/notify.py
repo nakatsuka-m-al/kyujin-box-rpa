@@ -104,6 +104,26 @@ def get_mail_status(mail_id: str) -> str:
         return ""
 
 
+def is_last_attempt() -> bool:
+    """
+    いまがリトライの最終試行か。
+
+    ワークフローは同じ処理を3回まで試す。途中の失敗で通知を送ると、
+    自動復旧したのに【至急】が届いてしまう。最後の試行だけ通知する。
+
+    環境変数が未設定なら「最終試行」とみなす。
+    リトライしない処理から呼ばれたときに通知が消えるのを防ぐため。
+    """
+    now = _env("RETRY_ATTEMPT")
+    total = _env("RETRY_TOTAL")
+    if not now or not total:
+        return True
+    try:
+        return int(now) >= int(total)
+    except ValueError:
+        return True
+
+
 class Notifier:
     """
     1回の実行で起きた問題をためて、最後にまとめて送る。

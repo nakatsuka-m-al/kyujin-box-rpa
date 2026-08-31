@@ -516,6 +516,16 @@ if __name__ == "__main__":
     except Exception as e:
         # 想定外の例外もそのまま落とすと英語のログしか残らない。
         # 日本語で1通送ってから、終了コードは失敗のままにする。
+        #
+        # ただしリトライの途中では送らない。
+        # 一時的なネットワーク障害は次の試行で回復することが多く、
+        # 毎回送ると自動復旧したのに【至急】が届いて狼少年になる。
+        if not notify.is_last_attempt():
+            logger.warning(
+                f"失敗しましたが、まだ再試行があるため通知しません: {type(e).__name__}: {e}"
+            )
+            raise
+
         notifier = notify.Notifier(source="求人ボックス 応募者同期")
         notifier.urgent(
             "処理中に予期しないエラーが発生しました",
