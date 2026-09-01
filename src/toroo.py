@@ -77,6 +77,22 @@ def is_target(account_id: str) -> bool:
     return str(account_id or "").strip() in ACCOUNT_IDS
 
 
+def _json(res) -> dict:
+    """
+    応答を辞書にする。JSON でなければ空の辞書を返す。
+
+    登録が成功したのに本文が空だと res.json() が例外を投げる。
+    それを呼び出し側が失敗と受け取ると、記録が残らないまま
+    次回もう一度同じ人を送ってしまう。二重登録を避けるため、
+    ここで握りつぶして「本文なしの成功」として扱う。
+    """
+    try:
+        return res.json() or {}
+    except ValueError:
+        logger.warning(f"JSONとして読めない応答でした: {res.text[:200]!r}")
+        return {}
+
+
 # ─── 認証 ────────────────────────────────────────────────────────────────────
 
 def _load_token() -> str:
@@ -126,7 +142,7 @@ def get_token(force: bool = False) -> str:
     if res.status_code >= 300:
         raise TorooError("network", f"トークン取得に失敗しました: {res.status_code} {res.text[:200]}")
 
-    token = (res.json() or {}).get("access_token", "")
+    token = _json(res).get("access_token", "")
     if not token:
         raise TorooError("auth", "トークンが返ってきませんでした")
     _save_token(token)
@@ -203,7 +219,7 @@ def resolve_recruitment_id(job_label: str, job_title: str) -> str:
     if res.status_code >= 300:
         raise TorooError("network", f"求人検索に失敗しました: {res.status_code} {res.text[:200]}")
 
-    results = (res.json() or {}).get("results", []) or []
+    results = _json(res).get("results", []) or []
     if not results:
         raise TorooError("not_found", f"「{title}」に一致する求人が見つかりませんでした")
     if len(results) > 1:
@@ -279,7 +295,7 @@ def create_applicant(applicant: dict, recruitment_id: str) -> dict:
     if res.status_code >= 300:
         raise TorooError("network", f"登録に失敗しました: {res.status_code} {res.text[:200]}")
 
-    return res.json() or {}
+    return _json(res)
 
 
 # ─── 書式 ────────────────────────────────────────────────────────────────────
