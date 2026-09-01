@@ -14,7 +14,7 @@ import json
 import logging
 import os
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
@@ -416,7 +416,11 @@ def target_terms() -> list[str]:
         return terms
 
     # 既定は前月と当月。月初に前月の確定値を取りこぼさないため。
-    today = date.today()
+    #
+    # GitHub Actions は UTC で動く。date.today() をそのまま使うと、
+    # 日本時間の1日 0:00〜9:00 に実行されたとき前月として扱われ、
+    # 当月分の行が1日遅れて作られる。日本時間で判定する。
+    today = (datetime.now(timezone.utc) + timedelta(hours=9)).date()
     prev_y, prev_m = (today.year - 1, 12) if today.month == 1 else (today.year, today.month - 1)
     return [f"{prev_y}{prev_m:02d}", f"{today.year}{today.month:02d}"]
 

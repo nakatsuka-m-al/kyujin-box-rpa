@@ -338,7 +338,7 @@ def deliver(applicants: list[dict], account_by_applicant: dict, sheets) -> None:
     log = LinkLog(sheets._service)
     already_synced = log.fetch_synced_ids() if (log.enabled and toroo.is_enabled()) else set()
 
-    now = time.strftime("%Y/%m/%d %H:%M:%S")
+    now = now_stamp()
     entries = []
 
     for applicant in applicants:
@@ -418,7 +418,9 @@ def _send_applicant_mail(applicant: dict, name: str, notifier) -> str:
 
 
 def now_stamp() -> str:
-    return time.strftime("%Y/%m/%d %H:%M:%S")
+    """日本時間の日時。GitHub Actions は UTC で動くため9時間足す"""
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y/%m/%d %H:%M:%S")
 
 
 def _sync_to_toroo(applicant: dict, name: str, notifier) -> tuple[str, str, str]:

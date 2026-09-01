@@ -11,7 +11,7 @@ import logging
 import os
 import re
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -155,7 +155,10 @@ def go_to_applicant_list(page, context):
 
     app_page.wait_for_load_state("networkidle")
 
-    today = date.today()
+    # GitHub Actions は UTC で動く。date.today() をそのまま使うと、
+    # 日本時間の 0:00〜9:00 に実行したとき「今日」が前日になり、
+    # その時間帯に入った応募が検索範囲から外れて取りこぼす。
+    today = (datetime.now(timezone.utc) + timedelta(hours=9)).date()
     first_day = date(today.year, 4, 1)  # 一時的に4月1日から全件取得
 
     url = (
