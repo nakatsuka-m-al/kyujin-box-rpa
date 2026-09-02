@@ -30,6 +30,12 @@ import toroo
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+def _now() -> str:
+    """日本時間の現在時刻。GitHub Actions は UTC で動くため9時間足す"""
+    from datetime import datetime, timedelta, timezone
+    return (datetime.now(timezone.utc) + timedelta(hours=9)).strftime("%Y/%m/%d %H:%M")
+
+
 # 架空の応募者。求人ボックスの応募CSVを scraper.parse_csv() に通した後の形と
 # そろえてある（COLUMN_MAP の全項目 + work_history + _raw）。
 # 実在しないと分かる名前・番号にする。
@@ -39,7 +45,9 @@ logger = logging.getLogger(__name__)
 #   期間は CSV に無いため入れない。
 DUMMY = {
     "applicant_id": "TEST-0001",
-    "applied_at": "2026/09/01 12:00",
+    # 実行した時刻。固定値だと「なぜ昨日なのか」と混乱のもとになる。
+    # 本番は求人ボックスの応募CSVの「応募日時」がそのまま入る
+    "applied_at": _now(),
     "name": "検証 太郎",
     "gender": "男性",
     "birthdate": "1990年01月23日 (36歳)",
