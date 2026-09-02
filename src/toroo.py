@@ -290,8 +290,11 @@ def create_applicant(applicant: dict, recruitment_id: str) -> dict:
     if res.status_code == 400:
         raise TorooError("rejected", f"登録を拒否されました: {res.text[:300]}")
     if res.status_code >= 500:
-        # 登録されたかどうか分からない。二重送信を避けるため成功扱いにしない
-        raise TorooError("unknown_result", f"サーバーエラー: {res.status_code}")
+        # 登録されたかどうか分からない。二重送信を避けるため成功扱いにしない。
+        # 本文には原因が書かれていることがあるので残す。400と同じ扱い
+        raise TorooError(
+            "unknown_result", f"サーバーエラー: {res.status_code} {res.text[:300]}"
+        )
     if res.status_code >= 300:
         raise TorooError("network", f"登録に失敗しました: {res.status_code} {res.text[:200]}")
 
