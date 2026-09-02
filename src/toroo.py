@@ -231,6 +231,19 @@ def resolve_recruitment_id(job_label: str, job_title: str) -> str:
 
 # ─── 応募者登録 ───────────────────────────────────────────────────────────────
 
+def _as_int(value):
+    """
+    求人IDを整数にする。
+
+    仕様書では integer と定義されている。文字列のまま送ると
+    Toroo 側の処理が落ちて 500 が返る（実測）。
+    数字以外が混ざっていたら変換せず、そのまま送って
+    エラー内容から判断できるようにする。
+    """
+    text = str(value or "").strip()
+    return int(text) if text.isdigit() else value
+
+
 GENDER_MAP = {"男性": 1, "女性": 0}
 
 
@@ -240,7 +253,7 @@ def build_payload(applicant: dict, recruitment_id: str) -> dict:
     payload = {
         "name": str(applicant.get("name") or "").strip(),
         "offer_date": _to_datetime(applicant.get("applied_at")),
-        "recruitment_id": recruitment_id,
+        "recruitment_id": _as_int(recruitment_id),
         "recruitment_route_id": RECRUITMENT_ROUTE_ID,
         "applicant_detail": {},
     }
