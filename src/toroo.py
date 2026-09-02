@@ -298,7 +298,12 @@ def build_payload(applicant: dict, recruitment_id: str) -> dict:
 
 
 def create_applicant(applicant: dict, recruitment_id: str) -> dict:
-    res = _request("POST", "/v1/applicants", json=build_payload(applicant, recruitment_id))
+    return post_applicant(build_payload(applicant, recruitment_id))
+
+
+def post_applicant(payload: dict) -> dict:
+    """組み立て済みの内容をそのまま送る。切り分けのときに使う"""
+    res = _request("POST", "/v1/applicants", json=payload)
 
     if res.status_code == 400:
         raise TorooError("rejected", f"登録を拒否されました: {res.text[:300]}")
@@ -318,10 +323,11 @@ def create_applicant(applicant: dict, recruitment_id: str) -> dict:
 
 def _to_datetime(value: str) -> str:
     """
-    「2026/08/23 22:30」→「2026-08-23 22:30:00」
+    「2026/08/23 22:30」→「2026-08-23T22:30:00」
 
-    仕様書に3種類の書式が混在しているため、まず一般的な形で送り、
-    実際に叩いて弾かれたら合わせる。
+    仕様書には3種類の書式が混在しているが、項目表の例が
+    T区切りの ISO 8601 なのでそれに合わせる。
+    半角スペース区切りで送ったところ 500 が返った（実測）。
     """
     import re
 
@@ -329,9 +335,9 @@ def _to_datetime(value: str) -> str:
     m = re.search(r"(\d{4})\D+(\d{1,2})\D+(\d{1,2})\D+(\d{1,2})\D+(\d{1,2})", text)
     if m:
         y, mo, d, h, mi = (int(x) for x in m.groups())
-        return f"{y:04d}-{mo:02d}-{d:02d} {h:02d}:{mi:02d}:00"
+        return f"{y:04d}-{mo:02d}-{d:02d}T{h:02d}:{mi:02d}:00"
     date = _to_date(text)
-    return f"{date} 00:00:00" if date else text
+    return f"{date}T00:00:00" if date else text
 
 
 def _to_date(value: str) -> str:

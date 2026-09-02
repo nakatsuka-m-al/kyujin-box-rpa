@@ -111,6 +111,13 @@ def main() -> None:
 
     payload = toroo.build_payload(applicant, resolved)
 
+    if os.environ.get("MINIMAL", "").strip():
+        # 切り分け用。仕様書で必須とされている項目だけに削る。
+        # ここで通れば、原因はこちらが足した任意項目のどれかに絞れる。
+        keep = {"name", "offer_date", "recruitment_id"}
+        payload = {k: v for k, v in payload.items() if k in keep}
+        logger.info("最小構成で送ります（必須項目のみ）")
+
     logger.info("")
     logger.info("=" * 60)
     logger.info("2. Toroo に送る内容（すべて架空データ）")
@@ -131,7 +138,7 @@ def main() -> None:
     logger.info("3. 応募者を登録")
     logger.info("=" * 60)
     try:
-        result = toroo.create_applicant(applicant, resolved)
+        result = toroo.post_applicant(payload)
     except toroo.TorooError as e:
         logger.error(f"登録に失敗しました（{e.kind}）: {e}")
         sys.exit(1)
