@@ -248,8 +248,6 @@ GENDER_MAP = {"男性": 1, "女性": 0}
 
 
 def build_payload(applicant: dict, recruitment_id: str) -> dict:
-    raw = applicant.get("_raw") or {}
-
     payload = {
         "name": str(applicant.get("name") or "").strip(),
         "offer_date": _to_datetime(applicant.get("applied_at")),
@@ -284,16 +282,11 @@ def build_payload(applicant: dict, recruitment_id: str) -> dict:
         if value:
             payload["applicant_detail"][field] = value
 
-    # 勤務先_1〜30 を配列にする。結合した文字列より扱いやすい
-    history = []
-    for i in range(1, 31):
-        company = str(raw.get(f"勤務先_{i}", "")).strip()
-        role = str(raw.get(f"役職・業務内容など_{i}", "")).strip()
-        if company:
-            history.append({"company_name": company, "job_description": role})
-    if history:
-        payload["work_history"] = history
-
+    # 職歴は job_career（文字列）だけで送る。
+    #
+    # 以前は勤務先_1〜30 を work_history 配列に組み立てて送っていたが、
+    # 配列の中の項目名が仕様書に定義されておらず、こちらの推測だった。
+    # 仕様書にある項目だけに絞る。job_career に同じ内容が入るので情報は落ちない。
     return payload
 
 
