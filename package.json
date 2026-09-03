@@ -1,0 +1,28 @@
+{
+  "name": "kyujin_box_rpa",
+  "version": "1.0.0",
+  "description": "求人ボックスの応募者データを自動取得し、Google Sheets と RPM（ゼクウ製ATS）に連携するツール。",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nakatsuka-m-al/kyujin-box-rpa.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nakatsuka-m-al/kyujin-box-rpa/issues"
+  },
+  "homepage": "https://github.com/nakatsuka-m-al/kyujin-box-rpa#readme",
+  "dependencies": {
+    "papaparse": "^5.7.0",
+    "xlsx": "^0.18.5"
+  }
+}

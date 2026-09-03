@@ -1,0 +1,28 @@
+{
+  "_comment": "求人ボックス 採用ボード（直接投稿）CSV更新の共通設定。企業IDはパートナー連携済みのものを指定すること。",
+  "企業ID": "8534-0765",
+  "勤務先名": "株式会社TAKE FOUR",
+  "求人ステータス": "下書き",
+  "_求人ステータスについて": "公開 / 下書き / 募集停止 のいずれか。初回は「下書き」で取り込み、管理画面で確認してから公開に切り替えるのが安全。",
+
+  "_headerAliasesについて": "列名を差し替えたい場合のみ使用。管理画面からダウンロードした実CSV (P-xxx_saiyoboard_kyujin_*.csv) のヘッダーが正。記入例p.42の「特徴」表記は誤りで、正しくは「求人の特徴」。",
+  "headerAliases": {},
+
+  "_workgateについて": "WORKGATE（ワークゲート）向け設定。japanese_level_cd は業務上の必要性に基づく日本語能力要件であり、国籍要件ではない。0:設定なし 1:N1以上可 2:N2以上可 3:N3以上可 9:ネイティブ限定（9は国籍による排除に近いため非推奨）",
+  "workgate": {
+    "master_xlsx": "/Users/masakatsu/Downloads/CSV対応表.xlsx",
+    "prepared_name": "株式会社TAKE FOUR 採用担当",
+    "prepared_email": "oubopay@blaze-ltd.com",
+    "japanese_level_cd": "2",
+    "temp_company": "",
+    "store_name": "",
+    "bid_price": "",
+    "temp_contract_period_type": "2",
+    "contract_period": "有期雇用派遣（契約期間および更新の有無は面接時にご説明します）",
+    "insurance": "社会保険完備（加入条件を満たす場合）",
+    "preventsmoke": "屋内禁煙（屋外に喫煙所あり）",
+    "trial_period": "",
+    "permit_edit_text": "0",
+    "use_set_station": "false"
+  }
+}
