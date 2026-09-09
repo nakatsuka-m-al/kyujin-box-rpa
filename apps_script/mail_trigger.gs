@@ -2,9 +2,10 @@
  * 応募通知メールを検知して GitHub Actions を起動する。
  *
  * ATS(求人部) と 求人ボックス の両方を扱う。
- * トリガーは3つ設定する:
+ * トリガーは4つ設定する:
  *   checkAtsMail        … 1分おき
  *   checkKyujinboxMail  … 1分おき
+ *   triggerReport       … 1時間おき（実績レポート同期の起動）
  *   sendHeartbeat       … 1日1回（死活監視）
  *
  * 設置手順は apps_script/README.md を参照。
@@ -249,6 +250,26 @@ function processMails(config) {
 function sendHeartbeat() {
   dispatch('heartbeat', {}, 'none');
   console.log('ハートビートを送信しました');
+}
+
+/**
+ * 1時間おきに実績レポート同期を起動する。
+ *
+ * GitHubのスケジュール実行は混雑時に間引かれ、毎時25分に設定しても
+ * 実際は1日6〜8回しか走らなかった（実測）。表示回数・応募数・費用が
+ * 最大5時間古いままになる。
+ *
+ * Apps Scriptの時間主導トリガーは間引かれないので、こちらから起動する。
+ * GitHub側は repository_dispatch の types: [sync-report] で受ける。
+ *
+ * 応募者の取り込みとは無関係。実績の数字を新しく保つためだけの処理で、
+ * 求人ボックスへのログインは1回きり、1回50秒ほどで終わる。
+ *
+ * トリガー設定: triggerReport を「時間ベースのタイマー」で1時間おき
+ */
+function triggerReport() {
+  dispatch('sync-report', {}, 'none');
+  console.log('実績レポート同期を起動しました');
 }
 
 function extractFromThread(thread, extract) {
