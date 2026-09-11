@@ -23,8 +23,13 @@ BATCH = 200
 
 def _env(name: str, default: str = "") -> str:
     """GitHub Actions は未設定の secrets を空文字で渡すので、空なら既定値"""
-    v = os.environ.get(name, "")
+    v = os.environ.get(name, "").strip()
     return v if v else default
+
+
+def route_from_env(default: str = "rpa_scheduled") -> str:
+    """ワークフローが渡す PORTAL_ROUTE（rpa_scheduled / rpa_mail_trigger）"""
+    return _env("PORTAL_ROUTE", default)
 
 
 def is_enabled() -> bool:
@@ -103,11 +108,12 @@ def send(payload: dict, notifier=None) -> None:
     total = {"received": 0, "inserted": 0, "skipped": 0, "unassigned": 0}
     failed = 0
     for chunk in chunked(applicants, BATCH):
-        body = {"media": payload["media"], "route": payload["route"], "applicants": chunk}
         try:
+            body = {"media": payload["media"], "route": payload["route"], "applicants": chunk}
             r = requests.post(url, json=body, headers=headers, timeout=60)
             if r.status_code >= 300:
-                raise RuntimeError(f"HTTP {r.status_code}: {re.sub(r'\\s+', ' ', r.text or '')[:200]}")
+                excerpt = re.sub(r"\s+", " ", r.text or "")[:300]
+                raise RuntimeError(f"HTTP {r.status_code}: {excerpt}")
             res = r.json()
             for k in total:
                 total[k] += int(res.get(k) or 0)

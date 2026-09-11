@@ -66,6 +66,31 @@ class PayloadTest(unittest.TestCase):
         self.assertEqual(a["raw"]["お仕事ID"], "1782146")
 
 
+class FieldKeysTest(unittest.TestCase):
+    def test_field_keys_match_portal_schema(self):
+        # ポータル側 FieldsSchema は strict。許可された16キー以外を送ると一括で 400 になる
+        allowed = {
+            "name", "gender", "birthdate", "current_job", "phone", "email", "address", "education",
+            "work_history", "message", "job_title", "job_id", "status", "selection_comment",
+            "job_label", "subaccount_name",
+        }
+        self.assertEqual(set(pe._KB_FIELD_KEYS) | {"subaccount_name"}, allowed)
+        self.assertTrue(set(pe._ATS_FIELD_MAP) <= allowed)
+
+    def test_env_strips_whitespace(self):
+        with mock.patch.dict(os.environ, {"PORTAL_INGEST_URL": "https://x/\n", "PORTAL_INGEST_TOKEN": " t "}):
+            self.assertEqual(pe._env("PORTAL_INGEST_URL"), "https://x/")
+            self.assertEqual(pe._env("PORTAL_INGEST_TOKEN"), "t")
+
+    def test_http_error_excerpt_is_single_line(self):
+        bad = mock.Mock(status_code=502, text="<html>\n  <body>\n bad gateway\n</body>")
+        with mock.patch.dict(os.environ, {"PORTAL_INGEST_URL": "https://x", "PORTAL_INGEST_TOKEN": "t"}):
+            with mock.patch("portal_exporter.requests.post", return_value=bad):
+                with self.assertLogs("portal_exporter", level="ERROR") as cm:
+                    pe.send({"media": "ats", "route": "rpa_scheduled", "applicants": [{"external_key": "x"}]})
+        self.assertNotIn("\n", cm.output[0].split("HTTP 502: ", 1)[1])
+
+
 class ChunkTest(unittest.TestCase):
     def test_chunks_of_200(self):
         items = [{"external_key": str(i)} for i in range(450)]

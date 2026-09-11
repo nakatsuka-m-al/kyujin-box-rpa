@@ -257,7 +257,7 @@ def main() -> None:
     try:
         _portal_notifier = notify.Notifier(client="", source="ATS 応募者同期")
         portal_exporter.send(
-            portal_exporter.build_ats_payload(new_rows, portal_exporter._env("PORTAL_ROUTE", "rpa_scheduled")),
+            portal_exporter.build_ats_payload(new_rows, portal_exporter.route_from_env()),
             _portal_notifier,
         )
         _portal_notifier.flush()
