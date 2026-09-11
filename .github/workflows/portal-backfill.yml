@@ -1,0 +1,44 @@
+name: ポータル 基盤シートから取り込み（手動のみ）
+
+on:
+  workflow_dispatch:
+    inputs:
+      tab:
+        description: "読むタブ名（OBS または ATS のタブ名）"
+        required: true
+      media:
+        description: "kyujinbox または ats"
+        required: true
+        default: kyujinbox
+      from_row:
+        description: "開始行（1始まり。既定 2）"
+        required: false
+        default: "2"
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: 取り込み
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
+          PORTAL_INGEST_URL:           ${{ vars.PORTAL_INGEST_URL }}
+          PORTAL_INGEST_TOKEN:         ${{ secrets.PORTAL_INGEST_TOKEN }}
+          BACKFILL_TAB:                ${{ inputs.tab }}
+          BACKFILL_MEDIA:              ${{ inputs.media }}
+          BACKFILL_FROM_ROW:           ${{ inputs.from_row }}
+        run: python src/portal_backfill.py
