@@ -18,6 +18,7 @@ from playwright.sync_api import sync_playwright
 
 import applicant_mail
 import notify
+import portal_exporter
 import toroo
 from exporters import SheetsExporter, RPMExporter, LinkLog
 
@@ -316,6 +317,21 @@ def main() -> None:
 
     if new_applicants:
         deliver(new_applicants, account_by_applicant, sheets)
+
+        # 応募者ポータル（Web）へも送る。設定が空なら何もしない。失敗しても続行
+        try:
+            _portal_notifier = notify.Notifier(client="", source="求人ボックス 応募者同期")
+            portal_exporter.send(
+                portal_exporter.build_kyujinbox_payload(
+                    new_applicants,
+                    account_by_applicant,
+                    "rpa_mail_trigger" if TARGET_ACCOUNT_ID else "rpa_scheduled",
+                ),
+                _portal_notifier,
+            )
+            _portal_notifier.flush()
+        except Exception as e:  # noqa: BLE001
+            logger.error(f"[portal] 予期しないエラー: {e}")
 
     save_seen_ids(seen_ids)
     logger.info("完了")

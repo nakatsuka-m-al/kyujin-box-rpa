@@ -77,6 +77,8 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SHEET_TAB:            ${{ secrets.GOOGLE_SHEET_TAB }}
+          PORTAL_INGEST_URL:           ${{ vars.PORTAL_INGEST_URL }}
+          PORTAL_INGEST_TOKEN:         ${{ secrets.PORTAL_INGEST_TOKEN }}
         # 一時的なネットワーク／Playwrightタイムアウトに備えて最大3回リトライ
         run: |
           for attempt in 1 2 3; do

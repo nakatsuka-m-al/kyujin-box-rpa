@@ -108,6 +108,9 @@ jobs:
           SEEN_IDS_PATH: seen_ats_fast.json
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          PORTAL_INGEST_URL: ${{ vars.PORTAL_INGEST_URL }}
+          PORTAL_INGEST_TOKEN: ${{ secrets.PORTAL_INGEST_TOKEN }}
+          PORTAL_ROUTE: rpa_mail_trigger
         run: |
           for attempt in 1 2 3; do
             echo "=== 試行 $attempt/3 ==="

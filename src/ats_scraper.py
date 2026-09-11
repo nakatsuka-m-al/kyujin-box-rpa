@@ -16,6 +16,8 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+import notify
+import portal_exporter
 from exporters import RawSheetsExporter
 
 logging.basicConfig(
@@ -250,6 +252,18 @@ def main() -> None:
         return
 
     sheets.append(new_rows)
+
+    # 応募者ポータル（Web）へも送る。設定が空なら何もしない。失敗しても続行
+    try:
+        _portal_notifier = notify.Notifier(client="", source="ATS 応募者同期")
+        portal_exporter.send(
+            portal_exporter.build_ats_payload(new_rows, portal_exporter._env("PORTAL_ROUTE", "rpa_scheduled")),
+            _portal_notifier,
+        )
+        _portal_notifier.flush()
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[portal] 予期しないエラー: {e}")
+
     save_seen_ids(seen_ids)
     logger.info("完了")
 

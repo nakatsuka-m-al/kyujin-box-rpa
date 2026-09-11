@@ -65,6 +65,9 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           ATS_SHEET_TAB:               ${{ secrets.ATS_SHEET_TAB }}
+          PORTAL_INGEST_URL:           ${{ vars.PORTAL_INGEST_URL }}
+          PORTAL_INGEST_TOKEN:         ${{ secrets.PORTAL_INGEST_TOKEN }}
+          PORTAL_ROUTE:                rpa_scheduled
         # 一時的なネットワーク／Playwrightタイムアウトに備えて最大3回リトライ
         run: |
           for attempt in 1 2 3; do
@@ -138,6 +141,9 @@ jobs:
           GOOGLE_SHEET_ID:             ${{ secrets.GOOGLE_SHEET_ID }}
           ATS_SHEET_TAB:               ${{ secrets.ATS2_SHEET_TAB }}
           SEEN_IDS_PATH:               seen_ats2_applicant_ids.json
+          PORTAL_INGEST_URL:           ${{ vars.PORTAL_INGEST_URL }}
+          PORTAL_INGEST_TOKEN:         ${{ secrets.PORTAL_INGEST_TOKEN }}
+          PORTAL_ROUTE:                rpa_scheduled
         # 一時的なネットワーク／Playwrightタイムアウトに備えて最大3回リトライ
         run: |
           for attempt in 1 2 3; do
