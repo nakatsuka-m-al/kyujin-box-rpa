@@ -7,7 +7,12 @@
   PORTAL_INGEST_URL, PORTAL_INGEST_TOKEN         … 送り先
   BACKFILL_TAB       … 読むタブ名（OBS / ATS のタブ名）
   BACKFILL_MEDIA     … kyujinbox または ats
-  BACKFILL_FROM_ROW  … 省略可。この行番号（1始まり）から。既定 2
+  BACKFILL_FROM_ROW  … 省略可。この行番号（1始まり）から。既定 2（1行目は見出し）
+  BACKFILL_DRY_RUN   … "1" なら件数を出すだけで送らない
+  BACKFILL_ALLOW_UNKNOWN … "1" なら媒体アカウントが特定できない行があっても送る（既定は中断）
+
+取り込みAPIは同じキーを二度入れない（ignoreDuplicates）ため、間違った内容で一度入れると
+再実行では直らない。最初は DRY_RUN で件数を確認してから流すこと。
 
 ログに個人情報を出さない（件数のみ）。
 """
@@ -15,6 +20,7 @@
 import json
 import logging
 import os
+import re
 import sys
 
 import requests
@@ -39,8 +45,9 @@ def _service():
 def read_tab(tab: str) -> tuple[list[str], list[list[str]]]:
     """1行目を見出し、2行目以降をデータとして返す"""
     svc = _service()
+    quoted = "'" + tab.replace("'", "''") + "'"  # 空白や記号を含むタブ名でも通る
     res = svc.spreadsheets().values().get(
-        spreadsheetId=os.environ["GOOGLE_SHEET_ID"], range=f"{tab}!A1:ZZ"
+        spreadsheetId=os.environ["GOOGLE_SHEET_ID"], range=f"{quoted}!A1:ZZ"
     ).execute()
     values = res.get("values") or []
     if not values:
@@ -50,7 +57,8 @@ def read_tab(tab: str) -> tuple[list[str], list[list[str]]]:
 
 
 def rows_to_dicts(header: list[str], rows: list[list[str]]) -> list[dict]:
-    """見出しが空の列は捨てる。短い行は空文字で埋める"""
+    """見出しが空の列は捨てる。短い行は空文字で埋める。
+    同名の見出しが複数あれば後の列が勝つ（OBS の S列と U列「暗号」は U が残る）"""
     out = []
     for r in rows:
         d = {header[i]: (str(r[i]) if i < len(r) and r[i] is not None else "")
@@ -102,7 +110,8 @@ def post_all(media: str, items: list[dict]) -> dict:
         r = requests.post(url, json={"media": media, "route": "initial_import", "applicants": chunk},
                           headers=headers, timeout=120)
         if r.status_code >= 300:
-            raise RuntimeError(f"HTTP {r.status_code}（{sent}〜{sent + len(chunk)} 件目）: {(r.text or '')[:300]}")
+            excerpt = re.sub(r"\s+", " ", r.text or "")[:300]
+            raise RuntimeError(f"HTTP {r.status_code}（{sent}〜{sent + len(chunk)} 件目）: {excerpt}")
         body = r.json()
         for k in total:
             total[k] += int(body.get(k) or 0)
@@ -111,30 +120,61 @@ def post_all(media: str, items: list[dict]) -> dict:
     return total
 
 
-def main() -> int:
+def run() -> int:
     if not portal_exporter.is_enabled():
         logger.error("PORTAL_INGEST_URL / PORTAL_INGEST_TOKEN が未設定です")
         return 1
-    tab = os.environ["BACKFILL_TAB"]
-    media = os.environ["BACKFILL_MEDIA"]
+    tab = os.environ.get("BACKFILL_TAB", "").strip()
+    media = os.environ.get("BACKFILL_MEDIA", "").strip()
+    if not tab:
+        logger.error("BACKFILL_TAB が未設定です")
+        return 1
     if media not in ("kyujinbox", "ats"):
         logger.error("BACKFILL_MEDIA は kyujinbox か ats")
         return 1
-    from_row = int(os.environ.get("BACKFILL_FROM_ROW") or "2")
+    try:
+        from_row = int(os.environ.get("BACKFILL_FROM_ROW") or "2")
+    except ValueError:
+        logger.error("BACKFILL_FROM_ROW は整数")
+        return 1
+    if from_row < 2:
+        logger.error("BACKFILL_FROM_ROW は 2 以上（1行目は見出し）")
+        return 1
+    dry_run = os.environ.get("BACKFILL_DRY_RUN", "").strip() == "1"
+    allow_unknown = os.environ.get("BACKFILL_ALLOW_UNKNOWN", "").strip() == "1"
 
     header, rows = read_tab(tab)
+    if media == "kyujinbox" and "アカウントID" not in header:
+        logger.error("OBS の見出しに「アカウントID」がありません（Z1 未記入）。全件が未特定になるため中断します")
+        return 1
     rows = rows[from_row - 2:]
     dicts = rows_to_dicts(header, rows)
     logger.info(f"タブ読み込み: {len(dicts)} 行（{from_row} 行目から）")
 
     items = kyujinbox_items(dicts, from_row) if media == "kyujinbox" else ats_items(dicts, from_row)
-    logger.info(f"送信対象: {len(items)} 件")
+    unknown = sum(1 for it in items if it["external_id"] == "unknown")
+    logger.info(f"送信対象: {len(items)} 件（媒体アカウント未特定: {unknown} 件）")
+    if unknown and not allow_unknown:
+        logger.error("媒体アカウントを特定できない行があります。シートのアカウントID列を確認するか、"
+                     "BACKFILL_ALLOW_UNKNOWN=1 で送ってください（送ると再実行では直りません）")
+        return 1
+    if dry_run:
+        logger.info("DRY_RUN のため送信しません")
+        return 0
     if not items:
         return 0
 
     total = post_all(media, items)
     logger.info(f"完了: {total}")
     return 0
+
+
+def main() -> int:
+    try:
+        return run()
+    except Exception as e:  # noqa: BLE001 - 手動実行なので1行の日本語で止める
+        logger.error(f"中断: {e}")
+        return 1
 
 
 if __name__ == "__main__":

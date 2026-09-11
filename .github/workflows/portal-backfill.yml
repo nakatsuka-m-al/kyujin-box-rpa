@@ -7,13 +7,25 @@ on:
         description: "読むタブ名（OBS または ATS のタブ名）"
         required: true
       media:
-        description: "kyujinbox または ats"
+        description: "媒体"
         required: true
+        type: choice
+        options: [kyujinbox, ats]
         default: kyujinbox
       from_row:
-        description: "開始行（1始まり。既定 2）"
+        description: "開始行（2以上。1行目は見出し）"
         required: false
         default: "2"
+      dry_run:
+        description: "件数を出すだけで送らない"
+        required: false
+        type: boolean
+        default: true
+      allow_unknown:
+        description: "媒体アカウント未特定の行があっても送る"
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   backfill:
@@ -41,4 +53,6 @@ jobs:
           BACKFILL_TAB:                ${{ inputs.tab }}
           BACKFILL_MEDIA:              ${{ inputs.media }}
           BACKFILL_FROM_ROW:           ${{ inputs.from_row }}
+          BACKFILL_DRY_RUN:            ${{ inputs.dry_run && '1' || '0' }}
+          BACKFILL_ALLOW_UNKNOWN:      ${{ inputs.allow_unknown && '1' || '0' }}
         run: python src/portal_backfill.py

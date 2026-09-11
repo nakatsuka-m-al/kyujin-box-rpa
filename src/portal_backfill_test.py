@@ -50,5 +50,37 @@ class AtsItemsTest(unittest.TestCase):
         self.assertEqual(items[0]["source_sheet_row"], 2)
 
 
+class RunGuardsTest(unittest.TestCase):
+    def _run(self, env):
+        import os
+        from unittest import mock
+        base = {"PORTAL_INGEST_URL": "https://x", "PORTAL_INGEST_TOKEN": "t",
+                "BACKFILL_TAB": "OBS", "BACKFILL_MEDIA": "kyujinbox", "BACKFILL_FROM_ROW": "2",
+                "BACKFILL_DRY_RUN": "1", "BACKFILL_ALLOW_UNKNOWN": "0"}
+        base.update(env)
+        with mock.patch.dict(os.environ, base, clear=False):
+            return b.run()
+
+    def test_rejects_from_row_below_2(self):
+        self.assertEqual(self._run({"BACKFILL_FROM_ROW": "1"}), 1)
+
+    def test_rejects_missing_account_id_header(self):
+        from unittest import mock
+        with mock.patch.object(b, "read_tab", return_value=(["応募No", "氏名"], [["A2-1", "x"]])):
+            self.assertEqual(self._run({}), 1)
+
+    def test_dry_run_stops_before_posting_and_blocks_unknown(self):
+        from unittest import mock
+        header = ["応募No", "氏名", "拠点名", "アカウントID"]
+        with mock.patch.object(b, "read_tab", return_value=(header, [["A2-1", "x", "会社", "1234-5678"]])):
+            with mock.patch.object(b, "post_all") as post:
+                self.assertEqual(self._run({}), 0)
+                post.assert_not_called()
+        with mock.patch.object(b, "read_tab", return_value=(header, [["A2-1", "x", "会社", ""]])):
+            with mock.patch.object(b, "post_all") as post:
+                self.assertEqual(self._run({"BACKFILL_DRY_RUN": "0"}), 1)  # 未特定があれば中断
+                post.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
