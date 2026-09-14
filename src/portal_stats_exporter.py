@@ -43,14 +43,15 @@ def month_of(term: str) -> str:
 
 
 def _int(text) -> int | None:
-    """"¥113,653" → 113653 / "-" → None"""
+    """"¥113,653" → 113653 / "-" → None / 負の数は None（1チャンク200行が丸ごと落ちるのを防ぐ）"""
     s = re.sub(r"[¥,\s]", "", str(text if text is not None else "").strip())
     if s in ("", "-", "―"):
         return None
     try:
-        return int(float(s))
+        v = int(float(s))
     except ValueError:
         return None
+    return None if v < 0 else v
 
 
 def _rate(text) -> float | None:
@@ -113,8 +114,8 @@ def send(payload: dict, notifier=None) -> None:
             body = {"channel": payload["channel"], "route": payload["route"], "rows": chunk}
             r = requests.post(url, json=body, headers=headers, timeout=60)
             if r.status_code >= 300:
-                excerpt = re.sub(r"\s+", " ", r.text or "")[:300]
-                raise RuntimeError(f"HTTP {r.status_code}: {excerpt}")
+                # 応答本文はログに出さない（このリポジトリは公開）。status_code だけ
+                raise RuntimeError(f"HTTP {r.status_code}")
             res = r.json()
             for k in total:
                 total[k] += int(res.get(k) or 0)

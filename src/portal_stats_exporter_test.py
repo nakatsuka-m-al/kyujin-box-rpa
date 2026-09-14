@@ -30,6 +30,12 @@ class ValueTest(unittest.TestCase):
         self.assertIsNone(pse._int("-"))
         self.assertIsNone(pse._int(""))
 
+    def test_int_rejects_negative(self):
+        # 負の数を通すと取り込みAPI側（zod の min(0)）で400になり、1チャンク200行が丸ごと落ちる
+        self.assertIsNone(pse._int("-500"))
+        self.assertIsNone(pse._int("¥-1,000"))
+        self.assertIsNone(pse._int(-1))
+
     def test_rate(self):
         self.assertEqual(pse._rate("4.0%"), 0.04)
         self.assertEqual(pse._rate("0.04"), 0.04)
@@ -83,6 +89,20 @@ class SendTest(unittest.TestCase):
                 pse.send({"channel": "kyujinbox", "route": "rpa_scheduled",
                           "rows": [{"month": "2026-08", "external_id": "1234-5678"}]}, notifier)
         notifier.check.assert_called_once()
+
+    def test_does_not_log_response_body_on_http_error(self):
+        # このリポジトリは公開なので、応答本文（顧客名や個人情報が写り込みうる）を Actions ログに出さない。
+        # status_code だけをログに出す
+        with mock.patch.dict(os.environ, {"PORTAL_INGEST_URL": "https://x", "PORTAL_INGEST_TOKEN": "t"}):
+            with mock.patch.object(pse.requests, "post") as post:
+                post.return_value = mock.Mock(status_code=500, text="boom secret-customer-name")
+                with self.assertLogs(pse.logger, level="ERROR") as cm:
+                    pse.send({"channel": "kyujinbox", "route": "rpa_scheduled",
+                              "rows": [{"month": "2026-08", "external_id": "1234-5678"}]})
+        logged = "\n".join(cm.output)
+        self.assertIn("HTTP 500", logged)
+        self.assertNotIn("boom", logged)
+        self.assertNotIn("secret-customer-name", logged)
 
 
 if __name__ == "__main__":
