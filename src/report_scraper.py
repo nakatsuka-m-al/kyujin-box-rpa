@@ -20,6 +20,8 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from playwright.sync_api import sync_playwright
 
+import notify
+import portal_stats_exporter
 import scraper
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -461,6 +463,15 @@ def main() -> None:
         raise RuntimeError("1件も取得できませんでした。画面構成が変わった可能性があります")
 
     sheet.upsert(items)
+
+    # 応募者ポータル（Web）へも送る。設定が空なら何もしない。失敗しても続行
+    try:
+        _portal_notifier = notify.Notifier(client="", source="求人ボックス 実績レポート同期")
+        portal_stats_exporter.send(portal_stats_exporter.build_payload(items), _portal_notifier)
+        _portal_notifier.flush()
+    except Exception as e:  # noqa: BLE001
+        logger.error(f"[portal] 予期しないエラー: {e}")
+
     logger.info("完了")
 
 

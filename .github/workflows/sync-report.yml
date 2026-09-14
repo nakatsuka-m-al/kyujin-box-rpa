@@ -75,6 +75,8 @@ jobs:
           REPORT_SHEET_ID: ${{ secrets.REPORT_SHEET_ID }}
           REPORT_SHEET_TAB: ${{ secrets.REPORT_SHEET_TAB }}
           REPORT_MONTHS: ${{ inputs.months }}
+          PORTAL_INGEST_URL:   ${{ vars.PORTAL_INGEST_URL }}
+          PORTAL_INGEST_TOKEN: ${{ secrets.PORTAL_INGEST_TOKEN }}
         run: |
           for attempt in 1 2 3; do
             echo "=== 試行 $attempt/3 ==="
